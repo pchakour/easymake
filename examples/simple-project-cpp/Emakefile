@@ -1,0 +1,14 @@
+targets:
+  build:
+    - target: build_objects
+      then: 
+        - build_exe
+  build_objects: 
+    - in_files: {{ glob("src/*") }}
+      out_files: [math.o, main.o]
+      cmd: g++ -c {{ in_files }}
+  build_exe:
+    - in_files: {{ glob("*.o") }}
+      out_files: [simple.exe]
+      cmd: g++ -o {{ out_files }} {{ in_files }}
+      
