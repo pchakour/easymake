@@ -1,23 +1,42 @@
 mod emake;
 mod graph;
 mod plugins;
+mod console;
+mod commands;
+
+use std::{env, fs, path::Path};
+use clap::{arg, Command, Parser};
+
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Args {
+    /// Name of the person to greet
+    #[arg(long)]
+    cwd: Option<String>,
+    command: String,
+    target: Option<String>,
+}
 
 #[tokio::main]
 async fn main() {
-    let args: Vec<String> = std::env::args().collect();
-    let target_id = &args[1];
+    let matches = Command::new("MyApp")
+        .version("0.0.1")
+        .about("Tool to build everut")
+        .arg(arg!(--cwd <PATH>).required(false))
+        .subcommand(Command::new("clean").about("Clean cache"))
+        .subcommand(
+            Command::new("build")
+                .about("Build a target")
+                .arg(arg!([target] "Target to build").required(true))
+                .arg(arg!(--notsilent "Dispay all outputs").required(false)),
+        )
+        .get_matches();
 
-    let cwd = String::from("/home/hawk/development/easybuild/examples/infrastructure");
-    // TODO save in the cache the last modification of Emakefile, if a change happened then rebuild everything
-    let build_file = "./examples/infrastructure/Emakefile";
-    let emakefile: emake::Emakefile = emake::loader::load_file(build_file);
-    println!("Build graph");
-    let graph_structure = graph::generator::generate(&emakefile, &target_id);
-    println!("{:?}", &graph_structure);
+    let mut cwd = env::current_dir().unwrap();
 
-    println!("Target analysor");
-    graph::analysor::target_analysor(&graph_structure, &target_id);
-    println!("{}", graph::viewer::as_graphviz(&graph_structure, &target_id));
-    let plugins_store = plugins::instanciate();
-    graph::runner::run_target(&target_id, graph_structure, plugins_store, &cwd).await;
+    if let Some(custom_cwd) = matches.get_one::<String>("cwd") {
+        cwd = Path::new(&fs::canonicalize(&custom_cwd).unwrap().to_str().unwrap()).to_path_buf();
+    }
+
+    commands::run_command(&matches, &cwd).await;
 }

@@ -1,9 +1,10 @@
 use std::fs;
 use serde_yml;
 use crate::emake;
+use crate::console::log;
 
 fn read_file_content(path: &str) -> String {
-    println!("Loading file {:?}", path);
+    log::info!("Loading file {:?}", path);
     let content = fs::read_to_string(path).unwrap();
     return content;
 }

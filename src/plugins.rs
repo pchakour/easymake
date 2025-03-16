@@ -3,10 +3,9 @@ use std::collections::HashMap;
 use serde_yml::Value;
 
 mod cmd;
-mod docker;
 
 pub trait Plugin: Send + Sync {
-    fn action(&self, cwd: &String, args: &Value, in_files: &Vec<String>, out_file: &Vec<String>, working_dir: &String) -> ();
+    fn action(&self, cwd: &str, silent: bool, args: &Value, in_files: &Vec<String>, out_file: &Vec<String>, working_dir: &String, default_replacments: Option<&HashMap<&str, &str>>) -> ();
     fn clone_box(&self) -> Box<dyn Plugin + Send + Sync>;
 }
 
@@ -36,5 +35,4 @@ pub fn instanciate() -> PluginsStore {
         plugins: HashMap::new(),
     }
     .add(&String::from(cmd::ID), Box::new(cmd::Cmd))
-    .add(&String::from(docker::ID), Box::new(docker::Docker))
 }

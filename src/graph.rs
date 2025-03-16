@@ -27,6 +27,7 @@ struct Node {
     action: Option<Action>,
     in_files: Vec<String>,
     out_files: Vec<String>,
+    reach_count: usize,
 }
 
 #[derive(Debug)]

@@ -1,3 +1,4 @@
+use crate::console::log;
 use crate::{emake, graph};
 use crate::plugins::PluginsStore;
 use std::fs::File;
@@ -13,16 +14,32 @@ use tokio::{
     task::{self, JoinHandle},
 };
 use url::Url;
+use std::path::PathBuf;
 
-const CACHE_DIR: &str = ".emake";
 
-fn get_cache_dir_path(cwd: &String) -> String {
-    cwd.clone() + "/" + CACHE_DIR
+const CACHE_DIR: &str = ".emake/cache";
+const WORKING_DIR: &str = ".emake/workspace";
+
+async fn get_cache_dir_path(cwd: &String, is_absolute: bool) -> String {
+    get_dir_path(cwd, CACHE_DIR, is_absolute).await
 }
 
-async fn create_cache_dir(cwd: &String) {
-    let cache_dir = get_cache_dir_path(cwd);
-    println!("Creating cache directory {}", cache_dir);
+async fn get_working_dir_path(cwd: &String, is_absolute: bool) -> String {
+    get_dir_path(cwd, WORKING_DIR, is_absolute).await
+}
+
+async fn get_dir_path(cwd: &String, dir: &str, is_absolute: bool) -> String {
+    let relative_path = PathBuf::from(cwd.clone() + "/" + dir);
+
+    if is_absolute {
+        return String::from(std::fs::canonicalize(&relative_path).unwrap().to_str().unwrap());
+    }
+
+    String::from(relative_path.to_str().unwrap())
+}
+
+async fn create_dir(cwd: &String, dir: &str) {
+    let cache_dir = get_dir_path(cwd, dir, false).await;
     let path = std::path::Path::new(&cache_dir);
     if let Ok(cache_file_dir_exists) = fs::try_exists(&path).await {
         if !cache_file_dir_exists {
@@ -32,13 +49,14 @@ async fn create_cache_dir(cwd: &String) {
 }
 
 fn get_absolute_file_path(cwd: &String, file: &String) -> std::path::PathBuf {
-    let absolute_path = cwd.clone() + "/" + file;
-    let path = std::path::Path::new(&absolute_path);
-    path.to_path_buf()
+    let absolute_path = cwd.clone();
+    let mut path = std::path::PathBuf::from(&absolute_path);
+    path.push(file);
+    path
 }
 
-fn get_file_cache(cwd: &String, file_absolute_path: &String) -> std::path::PathBuf {
-    let cache_path = format!("{}/{}/time", get_cache_dir_path(cwd), file_absolute_path);
+async fn get_file_cache(cwd: &String, file_absolute_path: &String) -> std::path::PathBuf {
+    let cache_path = format!("{}/{}/time", get_cache_dir_path(cwd, false).await, file_absolute_path);
     let path = std::path::Path::new(&cache_path);
     path.to_path_buf()
 }
@@ -74,13 +92,15 @@ async fn write_cache(cwd: &String,cache_to_update: Arc<RwLock<HashMap<String, St
 }
 
 async fn write_file_in_cache(cwd: &String, file_absolute_path: &String, modification_date: &String) {
-    let cache_file_path = get_file_cache(cwd, &file_absolute_path);
+    let cache_file_path = get_file_cache(cwd, &file_absolute_path).await;
     let cache_file_dir = cache_file_path.parent().unwrap();
     if let Ok(cache_file_dir_exists) = fs::try_exists(&cache_file_dir).await {
         if !cache_file_dir_exists {
+            // println!("Exists dir cache {:?}", cache_file_dir);
             fs::create_dir_all(&cache_file_dir).await.unwrap();
         }
 
+        // println!("Write file cache {:?}", cache_file_path);
         fs::write(&cache_file_path, &modification_date).await.unwrap();
     }
 }
@@ -90,7 +110,7 @@ async fn is_file_changed(cwd: &String, file: &String) -> bool {
     let file_absolute_path = String::from(get_absolute_file_path(cwd, file).to_str().unwrap_or(""));
 
     if let Some(modification_date) = get_file_modification_time(&file_absolute_path).await {
-        let cache_file = get_file_cache(cwd, &file_absolute_path);
+        let cache_file = get_file_cache(cwd, &file_absolute_path).await;
         if let Ok(cache_file_exists) = fs::try_exists(&cache_file).await {
             if cache_file_exists {
                 let previous_time =
@@ -122,7 +142,7 @@ fn is_downloadable_file(url: &str) -> bool {
 }
 
 async fn download_file(url: &str, output_path: &str) -> Result<(), Box<dyn std::error::Error>> {
-    println!("Downloading file {}...", url);
+    log::text!("{}⏳ Downloading file {}...", log::INDENT, url);
     // Validate URL
     let parsed_url = Url::parse(url)?;
     if parsed_url.scheme() != "http" && parsed_url.scheme() != "https" {
@@ -143,7 +163,7 @@ async fn download_file(url: &str, output_path: &str) -> Result<(), Box<dyn std::
     let content = response.bytes().await?;
     copy(&mut content.as_ref(), &mut writer)?;
 
-    println!("✅ File downloaded to: {}", output_path);
+    log::text!("{}✅ File downloaded to: {}", log::INDENT, output_path);
     Ok(())
 }
 
@@ -159,7 +179,8 @@ fn get_filename_from_url(url: &str) -> Option<String> {
 }
 
 async fn run_action(
-    _action_id: &String,
+    action_id: &String,
+    silent: bool,
     cwd: &String,
     in_files: &Vec<String>,
     out_files: &Vec<String>,
@@ -167,19 +188,23 @@ async fn run_action(
     plugins_store: Arc<RwLock<PluginsStore>>,
     cache_to_update: Arc<RwLock<HashMap<String, String>>>,
 ) {
+    log::info!("{}Running action {}", log::INDENT, action_id);
     let read_plugin_store = plugins_store.read().await;
     let maybe_plugin = read_plugin_store.get(&action.plugin_id);
     let mut files_to_update_cache = HashSet::new();
-
+    
     if let Some(plugin) = maybe_plugin {
         let mut need_to_run_action = in_files.len() == 0 && out_files.len() == 0;
         let mut real_in_files = Vec::new();
         let mut real_out_files = Vec::new();
-        let working_dir = get_cache_dir_path(cwd);
+        let working_dir = get_working_dir_path(cwd, true).await;
+        let default_replacements = HashMap::from([
+            ("EMAKE_WORKING_DIR", working_dir.as_str())
+        ]);
 
         // Get in files modification date
         for in_file in in_files {
-            let compiled_in_file_string = emake::compiler::compile(cwd, in_file, None);
+            let compiled_in_file_string = emake::compiler::compile(cwd, in_file, Some(&default_replacements));
             let mut files = Vec::from([in_file.clone()]);
 
             let parsed_compiled_files_result: Result<Vec<String>, _> = serde_yml::from_str(&compiled_in_file_string);
@@ -192,15 +217,16 @@ async fn run_action(
             for (index, file) in files.iter().enumerate() {
                 if is_downloadable_file(file) {
                     let filename = get_filename_from_url(file).unwrap();
-                    let output = format!("{}/{filename}", get_cache_dir_path(cwd));
-
-                    if is_file_changed(cwd, &output).await {
-                        download_file(file, &output).await.unwrap();
-                        let file_absolute_path = String::from(get_absolute_file_path(cwd, &file).to_str().unwrap());
+                    let mut output = PathBuf::from(get_working_dir_path(cwd, true).await);
+                    output.push(&filename);
+                    let output_string = String::from(output.to_str().unwrap());
+                    if is_file_changed(cwd, &output_string).await {
+                        download_file(file, &output_string).await.unwrap();
+                        let file_absolute_path = String::from(get_absolute_file_path(cwd, &filename).to_str().unwrap());
                         let current_time = get_file_modification_time(&file_absolute_path).await;
                         cache_to_update.write().await.insert(file_absolute_path, current_time.unwrap_or_default());
                     }
-                    files_to_replace.insert(output, index);
+                    files_to_replace.insert(output_string, index);
                 }
             }
 
@@ -212,8 +238,8 @@ async fn run_action(
         }
 
         for out_file in out_files {
-            let compiled_out_file_string = emake::compiler::compile(cwd, out_file, None);
-            let mut files = Vec::from([out_file.clone()]);
+            let compiled_out_file_string = emake::compiler::compile(cwd, out_file, Some(&default_replacements));
+            let mut files = Vec::from([compiled_out_file_string.clone()]);
 
             let parsed_compiled_files_result: Result<Vec<String>, _> = serde_yml::from_str(&compiled_out_file_string);
             match parsed_compiled_files_result {
@@ -237,15 +263,11 @@ async fn run_action(
         }
 
         if need_to_run_action {
-            let info = format!("Run action {:?}", action);
-            println!("{}", colored::Colorize::blue(info.as_str()));
-
-            plugin.action(cwd, &action.args, &real_in_files, &real_out_files, &working_dir);
+            plugin.action(cwd, silent, &action.args, &real_in_files, &real_out_files, &working_dir, Some(&default_replacements));
 
             for out_file in out_files {
-                let compiled_out_file_string = emake::compiler::compile(cwd, out_file, None);
-                let mut files = Vec::from([out_file.clone()]);
-    
+                let compiled_out_file_string = emake::compiler::compile(cwd, out_file, Some(&default_replacements));
+                let mut files = Vec::from([compiled_out_file_string.clone()]);
                 let parsed_compiled_files_result: Result<Vec<String>, _> = serde_yml::from_str(&compiled_out_file_string);
                 match parsed_compiled_files_result {
                     Ok(parsed_compiled_files) => files = parsed_compiled_files,
@@ -256,19 +278,18 @@ async fn run_action(
                     files_to_update_cache.insert(file);
                 }
             }
-
+            
             // Update cache
             for file in files_to_update_cache {
                 let file_absolute_path = String::from(get_absolute_file_path(cwd, &file).to_str().unwrap());
                 let current_time = get_file_modification_time(&file_absolute_path).await;
                 cache_to_update.write().await.insert(file_absolute_path, current_time.unwrap_or_default());
             }
+            log::info!("{}Action {} done !", log::INDENT, action_id);
         } else {
-            let alert = format!(
-                "No need to run action {:?} because no input/output files changed",
-                action
+            log::info!(
+                "{}No need to run action {} because no input/output files changed", log::INDENT, action_id
             );
-            println!("{}", colored::Colorize::yellow(alert.as_str()));
         }
     }
 }
@@ -280,20 +301,25 @@ fn bfs_parallel(
     running_tasks: Arc<RwLock<HashMap<String, JoinHandle<()>>>>,
     plugins_store: Arc<RwLock<PluginsStore>>,
     visited: Arc<RwLock<HashSet<String>>>,
+    silent: bool,
     cwd: String,
     cache_to_update: Arc<RwLock<HashMap<String, String>>>,
+    p_current_step: usize,
+    total_steps: usize,
 ) -> impl Future + Send {
     async move {
+        let mut current_step = p_current_step;
         if !visited.read().await.contains(&node_id) {
             visited.write().await.insert(node_id.clone());
 
-            // Get the neighbors of the current node.
+            // Get the current node
             let maybe_node = {
                 let safe_graph = graph.read().await;
                 safe_graph.nodes.get(&node_id).cloned()
             };
 
             if let Some(node) = maybe_node {
+                // Wait for all incomming actions
                 for in_neighbor in &node.in_neighbors {
                     if let Some(t) = running_tasks.write().await.get_mut(in_neighbor) {
                         t.await.unwrap();
@@ -301,6 +327,8 @@ fn bfs_parallel(
                     running_tasks.write().await.remove(in_neighbor);
                 }
 
+                // Get all output neighbors
+                let mut action_number = 0;
                 let neighbors = node.out_neighbors;
                 for neighbor_id in &neighbors {
                     // If action run it
@@ -316,9 +344,13 @@ fn bfs_parallel(
                         let cache_to_update_clone = Arc::clone(&cache_to_update);
                         let cloned_action = action.clone();
                         let cloned_cwd = cwd.clone();
+                        current_step += 1;
+                        action_number += 1;
+                        log::step!(current_step, total_steps, "Running action {} of target {}", action_number, node_id);
                         let r = task::spawn(async move {
                             run_action(
                                 &action_id,
+                                silent,
                                 &cloned_cwd,
                                 &in_files,
                                 &out_files,
@@ -330,9 +362,6 @@ fn bfs_parallel(
                         });
 
                         running_tasks.write().await.insert(neighbor_id.clone(), r);
-                    } else {
-                        let step = format!("Build target {}", neighbor_id);
-                        println!("{}", colored::Colorize::green(step.as_str()));
                     }
                 }
 
@@ -344,6 +373,7 @@ fn bfs_parallel(
                     let plugins_store_clone = Arc::clone(&plugins_store);
                     let visited_clone = Arc::clone(&visited);
                     let cache_to_update_clone = Arc::clone(&cache_to_update);
+                    let silent_clone = silent.clone();
 
                     Box::pin(bfs_parallel(
                         graph_clone,
@@ -352,8 +382,11 @@ fn bfs_parallel(
                         running_tasks_clone,
                         plugins_store_clone,
                         visited_clone,
+                        silent_clone,
                         cwd.clone(),
                         cache_to_update_clone,
+                        current_step,
+                        total_steps
                     ))
                     .await;
                 }
@@ -366,8 +399,12 @@ pub async fn run_target(
     target_id: &String,
     graph: graph::Graph,
     plugins_store: PluginsStore,
+    silent: &bool,
     cwd: &String,
 ) {
+    let total_steps = graph::analysor::steps_len(&graph);
+    log::info!("Total steps to run {total_steps} for target {target_id}\n");
+
     let mgraph = Arc::new(RwLock::new(graph));
     let semaphore = Arc::new(Semaphore::new(15));
     let running_tasks = Arc::new(RwLock::new(HashMap::new()));
@@ -376,8 +413,10 @@ pub async fn run_target(
     let visited = Arc::new(RwLock::new(HashSet::new()));
     let cache_to_update = Arc::new(RwLock::new(HashMap::new()));
     let read_cache_to_update = cache_to_update.clone();
+    let silent_clone = silent.clone();
 
-    create_cache_dir(cwd).await;
+    create_dir(cwd, WORKING_DIR).await;
+    create_dir(cwd, CACHE_DIR).await;
 
     bfs_parallel(
         mgraph,
@@ -386,8 +425,11 @@ pub async fn run_target(
         running_tasks_clone,
         mplugins_store,
         visited,
+        silent_clone,
         cwd.clone(),
         cache_to_update,
+        0,
+        total_steps
     )
     .await;
 
