@@ -5,12 +5,12 @@ use std::{
 
 use crate::{commands::build, console::log};
 
-use super::Plugin;
+use super::Action;
 pub static ID: &str = "target";
 
 pub struct Target;
 
-impl Plugin for Target {
+impl Action for Target {
     fn action<'a>(
         &'a self,
         cwd: &'a str,
@@ -37,7 +37,7 @@ impl Plugin for Target {
         })
     }
 
-    fn clone_box(&self) -> Box<dyn Plugin + Send + Sync> {
+    fn clone_box(&self) -> Box<dyn Action + Send + Sync> {
         Box::new(Self)
     }
 }

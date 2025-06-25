@@ -1,4 +1,5 @@
 use crate::console::log;
+use crate::credentials::{self, CredentialsStore};
 use crate::graph::InFile;
 use crate::{emake, graph};
 use crate::actions::ActionsStore;
@@ -10,6 +11,7 @@ use std::{
     future::Future,
     sync::Arc,
 };
+use reqwest::Client;
 use tokio::{
     fs,
     sync::{RwLock, Semaphore},
@@ -141,16 +143,22 @@ async fn is_file_changed(cwd: &String, file: &String) -> bool {
     file_changed
 }
 
-async fn extract_credentials(credentials_key: &String) {
-
-}
-
-async fn download_file(url: &str, output_path: &str, maybe_credentials: Option<String>) -> Result<(), Box<dyn std::error::Error>> {
+async fn download_file(
+    url: &str,
+    output_path: &str,
+    maybe_credentials_key: &Option<String>,
+    credentials_store: Arc<RwLock<CredentialsStore>>,
+) -> Result<(), Box<dyn std::error::Error>> {
     log::text!("{}⏳ Downloading file {}...", log::INDENT, url);
 
-    let mut credentials = None;
-    if let Some(credentials_key) = maybe_credentials {
-        credentials = Some(extract_credentials(&credentials_key).await);
+    let read_credentials_store = credentials_store.read().await;
+    let mut maybe_credentials = None;
+    if let Some(credentials_key) = maybe_credentials_key {
+        if let Some(store) = read_credentials_store.get(credentials_key) {
+            maybe_credentials = Some(store.extract());
+        } else {
+            log::error!("The specified credentials type doesn't exist {}", credentials_key);
+        }
     }
 
     // Validate URL
@@ -160,7 +168,14 @@ async fn download_file(url: &str, output_path: &str, maybe_credentials: Option<S
     }
 
     // Send GET request
-    let response = reqwest::get(url).await.expect("request failed");
+    let client = Client::new();
+    let mut request = client.get(url);
+
+    if let Some(credentials) = maybe_credentials {
+        request = request.basic_auth(credentials.username, credentials.password);
+    }
+
+    let response = request.send().await.expect("request failed");
     if !response.status().is_success() {
         return Err(format!("Failed to download: HTTP {}", response.status()).into());
     }
@@ -217,11 +232,12 @@ async fn run_action(
     in_files: &Vec<InFile>,
     out_files: &Vec<String>,
     action: &graph::Action,
-    plugins_store: Arc<RwLock<ActionsStore>>,
+    actions_store: Arc<RwLock<ActionsStore>>,
+    credentials_store: Arc<RwLock<CredentialsStore>>,
     cache_to_update: Arc<RwLock<Vec<String>>>,
 ) {
     log::info!("{}Running action {:?}", log::INDENT, action);
-    let read_plugin_store = plugins_store.read().await;
+    let read_plugin_store = actions_store.read().await;
     let maybe_plugin = read_plugin_store.get(&action.plugin_id);
     // let mut files_to_update_cache = HashSet::new();
     
@@ -254,7 +270,7 @@ async fn run_action(
                     output.push(&filename);
                     let output_string = String::from(output.to_str().unwrap());
                     if is_file_changed(cwd, &output_string).await {
-                        download_file(file, &output_string).await.unwrap();
+                        download_file(file, &output_string, &in_file.credentials, credentials_store.clone()).await.unwrap();
                     }
                     files_to_replace.insert(output_string, index);
                 }
@@ -318,7 +334,8 @@ fn bfs_parallel(
     node_id: String,
     semaphore: Arc<Semaphore>,
     running_tasks: Arc<RwLock<HashMap<String, JoinHandle<()>>>>,
-    plugins_store: Arc<RwLock<ActionsStore>>,
+    actions_store: Arc<RwLock<ActionsStore>>,
+    credentials_store: Arc<RwLock<CredentialsStore>>,
     visited: Arc<RwLock<HashSet<String>>>,
     silent: bool,
     cwd: String,
@@ -362,7 +379,8 @@ fn bfs_parallel(
                     if let Some(action) = &neighbor.action {
                         // Run it using the plugin store
                         let _ = semaphore.acquire().await.unwrap();
-                        let plugins_store_clone = Arc::clone(&plugins_store);
+                        let actions_store_clone = Arc::clone(&actions_store);
+                        let credentials_store_clone = Arc::clone(&credentials_store);
                         let cache_to_update_clone = Arc::clone(&cache_to_update);
                         let cloned_action = action.clone();
                         let cloned_cwd = cwd.clone();
@@ -378,7 +396,8 @@ fn bfs_parallel(
                                 &in_files,
                                 &out_files,
                                 &cloned_action,
-                                plugins_store_clone,
+                                actions_store_clone,
+                                credentials_store_clone,
                                 cache_to_update_clone,
                             )
                             .await;
@@ -393,7 +412,8 @@ fn bfs_parallel(
                     let neighbor_clone = neighbor_id.clone();
                     let semaphore_clone = Arc::clone(&semaphore);
                     let running_tasks_clone = Arc::clone(&running_tasks);
-                    let plugins_store_clone = Arc::clone(&plugins_store);
+                    let actions_store_clone = Arc::clone(&actions_store);
+                    let credentials_store_clone = Arc::clone(&credentials_store);
                     let visited_clone = Arc::clone(&visited);
                     let cache_to_update_clone = Arc::clone(&cache_to_update);
                     // let outfiles_clone = Arc::clone(&outfiles);
@@ -404,7 +424,8 @@ fn bfs_parallel(
                         neighbor_clone,
                         semaphore_clone,
                         running_tasks_clone,
-                        plugins_store_clone,
+                        actions_store_clone,
+                        credentials_store_clone,
                         visited_clone,
                         silent_clone,
                         cwd.clone(),
@@ -424,7 +445,8 @@ fn bfs_parallel(
 pub async fn run_target(
     target_id: &String,
     graph: graph::Graph,
-    plugins_store: ActionsStore,
+    actions_store: ActionsStore,
+    credentials_store: CredentialsStore,
     silent: &bool,
     cwd: &String,
 ) {
@@ -435,7 +457,8 @@ pub async fn run_target(
     let semaphore = Arc::new(Semaphore::new(15));
     let running_tasks = Arc::new(RwLock::new(HashMap::new()));
     let running_tasks_clone = Arc::clone(&running_tasks);
-    let mplugins_store = Arc::new(RwLock::new(plugins_store));
+    let mactions_store = Arc::new(RwLock::new(actions_store));
+    let mcredentials_store = Arc::new(RwLock::new(credentials_store));
     let visited = Arc::new(RwLock::new(HashSet::new()));
     let cache_to_update = Arc::new(RwLock::new(Vec::new()));
     // let cache_to_update = Arc::new(RwLock::new(HashMap::new()));
@@ -453,7 +476,8 @@ pub async fn run_target(
         target_id.clone(),
         semaphore,
         running_tasks_clone,
-        mplugins_store,
+        mactions_store,
+        mcredentials_store,
         visited,
         silent_clone,
         cwd.clone(),

@@ -1,9 +1,4 @@
-use serde_yml::Value;
-use std::{
-    collections::HashMap, future::Future, io::{BufRead, BufReader}, pin::Pin, process::{Command, Stdio}, sync::{Arc, Mutex}
-};
-
-use crate::{console::log, emake};
+use crate::{credentials::PlainCredentials};
 
 use super::Credentials;
 pub static ID: &str = "plain";
@@ -11,11 +6,13 @@ pub static ID: &str = "plain";
 pub struct Plain;
 
 impl Credentials for Plain {
-    fn credentials<'a>(
+    fn extract<'a>(
         &'a self,
-        cwd: &'a str,
-        _emakefile_cwd: &'a str,        
-    ) -> String {
-        String::from("TRY it");
+    ) -> PlainCredentials {
+        PlainCredentials { username: String::from("username"), password: Some(String::from("password")) }
+    }
+    
+    fn clone_box(&self) -> Box<dyn Credentials + Send + Sync> {
+        Box::new(Self)
     }
 }

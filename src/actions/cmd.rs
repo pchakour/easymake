@@ -5,12 +5,12 @@ use std::{
 
 use crate::{console::log, emake};
 
-use super::Plugin;
+use super::Action;
 pub static ID: &str = "cmd";
 
 pub struct Cmd;
 
-impl Plugin for Cmd {
+impl Action for Cmd {
     fn action<'a>(
         &'a self,
         cwd: &'a str,
@@ -113,7 +113,7 @@ impl Plugin for Cmd {
         })
     }
 
-    fn clone_box(&self) -> Box<dyn Plugin + Send + Sync> {
+    fn clone_box(&self) -> Box<dyn Action + Send + Sync> {
         Box::new(Self)
     }
 }

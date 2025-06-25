@@ -13,6 +13,13 @@ pub async fn run(target: &String, silent: &bool, cwd: &Path) {
     let actions_store = actions::instanciate();
     let credentials_store = credentials::instanciate();
 
-    graph::runner::run_target(&target, graph_structure, actions_store, silent, &String::from(cwd.to_str().unwrap())).await;
+    graph::runner::run_target(
+        &target,
+        graph_structure,
+        actions_store,
+        credentials_store,
+        silent,
+        &String::from(cwd.to_str().unwrap())
+    ).await;
     log::success!("Everything is ok");
 }

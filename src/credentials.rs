@@ -1,35 +1,43 @@
-    use std::{collections::HashMap, future::Future, pin::Pin};
+use std::{collections::HashMap};
 
-    use serde_yml::Value;
+mod plain;
 
-    mod plain;
+pub struct PlainCredentials {
+    pub username: String,
+    pub password: Option<String>,
+}
 
-    pub trait Credentials {
-        fn extract<'a>(
-            &'a self,
-            key: &'a str,
-            cwd: &'a str,
-            emakefile_cwd: &'a str);
+pub trait Credentials: Send + Sync {
+    fn extract<'a>(
+        &'a self,
+    ) -> PlainCredentials;
+    fn clone_box(&self) -> Box<dyn Credentials + Send + Sync>;
+}
+
+impl Clone for Box<dyn Credentials + Send + Sync> {
+    fn clone(&self) -> Box<dyn Credentials + Send + Sync> {
+        self.clone_box()
+    }
+}
+
+pub struct CredentialsStore {
+    credentials: HashMap<String, Box<dyn Credentials + Send + Sync>>
+}
+
+impl CredentialsStore {
+    pub fn add(mut self, key: &String, action: Box<dyn Credentials + Send + Sync>) -> CredentialsStore {
+        self.credentials.insert(key.clone(), action);
+        self
     }
 
-    pub struct CredentialsStore {
-        credentials: HashMap<String, Credentials>
+    pub fn get(&self, credentials_key: &String) -> Option<&Box<dyn Credentials + Send + Sync>> {
+        self.credentials.get(credentials_key)
     }
+}
 
-    impl CredentialsStore {
-        pub fn add(mut self, key: &String, credentials: Credentials) -> CredentialsStore {
-            self.credentials.insert(key.clone(), credentials);
-            self
-        }
-
-        pub fn get(&self, credentials_id: &String) -> Option<&Credentials> {
-            self.credentials.get(action_id)
-        }
+pub fn instanciate() -> CredentialsStore {
+    CredentialsStore {
+        credentials: HashMap::new(),
     }
-
-    pub fn instanciate() -> CredentialsStore {
-        CredentialsStore {
-            credentials: HashMap::new(),
-        }
-        .add(&String::from(plain::ID), plain::Plain)
-    }
+    .add(&String::from(plain::ID), Box::new(plain::Plain))
+}

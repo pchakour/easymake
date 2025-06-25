@@ -3,6 +3,7 @@ mod graph;
 mod actions;
 mod console;
 mod commands;
+mod credentials;
 
 use std::{env, fs, path::Path};
 use clap::{arg, Command, Parser};
