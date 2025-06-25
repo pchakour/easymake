@@ -5,6 +5,7 @@ use serde_yml::Value;
 pub mod generator;
 pub mod runner;
 pub mod viewer;
+pub mod common;
 pub mod analysor;
 
 #[derive(Debug, Clone)]
@@ -20,14 +21,20 @@ impl Display for Action {
 }
 
 #[derive(Debug, Clone)]
+struct InFile{
+    file: String,
+    credentials: Option<String>,
+}
+
+#[derive(Debug, Clone)]
 struct Node {
     id: String,
     in_neighbors: Vec<String>,
     out_neighbors: Vec<String>,
     action: Option<Action>,
-    in_files: Vec<String>,
+    in_files: Vec<InFile>,
     out_files: Vec<String>,
-    reach_count: usize,
+    cwd: String,
 }
 
 #[derive(Debug)]

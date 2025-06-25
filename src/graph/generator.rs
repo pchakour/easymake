@@ -1,12 +1,28 @@
 use hex::encode;
+use serde_yml::modules::error::new;
 use serde_yml::Value;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::path::Path;
+use std::process;
 
 use crate::console::log;
 use crate::emake;
 use crate::graph;
+use crate::graph::InFile;
+
+fn get_absolute_file_path(cwd: &String, file: &String) -> std::path::PathBuf {
+    if file.starts_with("/") || file.starts_with("{{") {
+        std::path::PathBuf::from(&file)
+    } else {
+        let absolute_path = cwd.clone();
+        let mut path = std::path::PathBuf::from(&absolute_path);
+        path.push(file);
+        path
+    }
+}
+
 
 fn compute_sha256(content: &str) -> String {
     let mut hasher = Sha256::new();
@@ -15,8 +31,8 @@ fn compute_sha256(content: &str) -> String {
     encode(result)
 }
 
-fn create_action_node(plugin_id: &String, args: &Value) -> graph::Node {
-    let args_as_str = format!("{:?}", args);
+fn create_action_node(plugin_id: &String, args: &Value, cwd: String, in_files: &Vec<InFile>, out_files: &Vec<String>) -> graph::Node {
+    let args_as_str = format!("{:?} {:?} {:?}", in_files, out_files, args);
     graph::Node {
         id: format!("{}|{}", plugin_id, compute_sha256(&args_as_str)),
         action: Some(graph::Action {
@@ -27,55 +43,59 @@ fn create_action_node(plugin_id: &String, args: &Value) -> graph::Node {
         in_neighbors: Vec::new(),
         in_files: Vec::new(),
         out_files: Vec::new(),
-        reach_count: 1,
+        cwd,
     }
 }
 
-fn get_node_leaves(graph: &graph::Graph, node_id: &String) -> HashSet<String> {
-    let mut leaves = HashSet::new();
-    let maybe_node = graph.nodes.get(node_id);
+fn extract_in_file_value(value: &Value) -> Vec<InFile> {
+    if value.is_sequence() {
+        let in_files = value
+            .as_sequence()
+            .unwrap();
 
-    if let Some(node) = maybe_node {
-        if node.out_neighbors.is_empty() {
-            leaves.insert(node_id.clone());
-        } else {
-            for neighbor_id in &node.out_neighbors {
-                let neighbor_leaves = get_node_leaves(graph, neighbor_id);
-                leaves.extend(neighbor_leaves);
+        let mut result: Vec<InFile> = Vec::new();
+        for in_file in in_files {
+            if in_file.is_string() {
+                result.push(InFile {
+                    file: String::from(in_file.as_str().unwrap()),
+                    credentials: None,
+                });
+            } else if in_file.is_mapping() {
+                let in_file_mapping = in_file.as_mapping().unwrap();
+                match in_file_mapping.get("file") {
+                    Some(file_name) => {
+                        let credentials;
+                        match in_file_mapping.get("credentials") {
+                            Some(credentials_name) => {
+                                credentials = Some(String::from(credentials_name.as_str().unwrap()));
+                            },
+                            None => {
+                                credentials = None;
+                            }
+                        }
+
+                        result.push(InFile {
+                            file: String::from(file_name.as_str().unwrap()),
+                            credentials,
+                        });
+                    },
+                    None => {
+                        log::error!("You must define a file key for {:?}", value);
+                    }
+                }
+            } else {
+                log::error!("Unknown in_file type {:?}", in_file);
+                process::exit(1);
             }
         }
-    }
 
-    return leaves;
-}
-
-fn is_new_path(graph: &graph::Graph, node: &String) -> bool {
-    true
-}
-
-fn get_target_node<'a>(graph: &'a mut graph::Graph, target_id: &String) -> &'a mut graph::Node {
-    let out_neighbors: Vec<String> = Vec::new();
-    let in_neighbors: Vec<String> = Vec::new();
-    let target_node;
-
-    if graph.nodes.contains_key(target_id) {
-        target_node = graph.nodes.get_mut(target_id).unwrap();
-        target_node.reach_count += 1;
-    } else {
-        let node = graph::Node {
-            id: target_id.clone(),
-            out_neighbors,
-            in_neighbors,
-            action: None,
-            in_files: Vec::new(),
-            out_files: Vec::new(),
-            reach_count: 1,
-        };
-        graph.nodes.insert(target_id.clone(), node);
-        target_node = graph.nodes.get_mut(target_id).unwrap();
-    }
-
-    target_node
+        return result;
+    } 
+    
+    extract_value(value).iter().map(|file| InFile {
+        file: file.to_owned(),
+        credentials: None,
+    }).collect()
 }
 
 fn extract_value(value: &Value) -> Vec<String> {
@@ -110,16 +130,28 @@ fn extract_value(value: &Value) -> Vec<String> {
     Vec::from([value.as_str().unwrap().to_string()])
 }
 
-fn extract_in_files(entry: &HashMap<String, Value>) -> Vec<String> {
-    let mut in_files = Vec::new();
+
+fn extract_in_files(cwd: &Path, entry: &HashMap<String, Value>) -> Vec<InFile> {
+    let mut in_files: Vec<InFile> = Vec::new();
     if let Some(in_files_value) = entry.get("in_files") {
-        in_files = extract_value(in_files_value);
+        in_files = extract_in_file_value(in_files_value);
     }
+
+    in_files = in_files.iter().map(|in_file| {
+        if graph::common::is_downloadable_file(&in_file.file) {
+            return in_file.clone();
+        }
+        
+        InFile {
+            file: String::from(get_absolute_file_path(&String::from(cwd.to_string_lossy()), &in_file.file).to_string_lossy()),
+            credentials: in_file.credentials.clone(),
+        }
+    }).collect::<Vec<InFile>>();
 
     in_files
 }
 
-fn extract_out_files(entry: &HashMap<String, Value>) -> Vec<String> {
+fn extract_out_files(_cwd: &Path, entry: &HashMap<String, Value>) -> Vec<String> {
     let mut out_files = Vec::new();
     if let Some(out_files_value) = entry.get("out_files") {
         out_files = extract_value(out_files_value);
@@ -137,284 +169,77 @@ fn extract_then_targets(entry: &HashMap<String, Value>) -> Vec<String> {
     then_targets
 }
 
-fn create_target_node2(
-    emakefile: &emake::Emakefile,
-    target_id: &String,
-    graph: &mut graph::Graph,
-    visited: &mut HashSet<String>,
-) -> graph::Node {
-    let maybe_emakefile_target = emakefile.targets.get(target_id);
-    let mut out_neighbors: Vec<String> = Vec::new();
-    let in_neighbors: Vec<String> = Vec::new();
-
-    if let Some(emakefile_target) = maybe_emakefile_target {
-        for entry in emakefile_target {
-            let mut maybe_subtarget: Option<String> = None;
-            let then_targets: Vec<String> = extract_then_targets(entry);
-            let in_files: Vec<String> = extract_in_files(entry);
-            let out_files: Vec<String> = extract_out_files(entry);
-
-            for then_target in &then_targets {
-                if !visited.contains(then_target) {
-                    visited.insert(then_target.clone());
-                    let mut n = create_target_node2(
-                        emakefile,
-                        then_target,
-                        graph,
-                        visited,
-                    );
-                    n.in_files = in_files.clone();
-                    n.out_files = out_files.clone();
-                    graph.nodes.insert(n.id.clone(), n);
-                }
-            }
-
-            for (key, value) in entry {
-                if key != "then" && key != "in_files" && key != "out_files" {
-                    let plugin_id = key;
-                    let args = value;
-                    let mut n = create_action_node(&plugin_id, args);
-                    n.in_neighbors.push(target_id.clone());
-                    n.in_files = in_files.clone();
-                    n.out_files = out_files.clone();
-                    let id = n.id.clone();
-                    graph.nodes.insert(id.clone(), n);
-                    maybe_subtarget = Some(id.clone());
-                }
-            }
-
-            if let Some(subtarget_id) = maybe_subtarget {
-                if let Some(subtarget) = graph.nodes.get_mut(&subtarget_id) {
-                    for then_target in &then_targets {
-                        subtarget.out_neighbors.push(then_target.clone());
-                    }
-
-                    for then_target in &then_targets {
-                        let maybe_then_target_node = graph
-                            .nodes
-                            .get_mut(then_target);
-                        
-                        if let Some(then_target_node) = maybe_then_target_node {
-                            then_target_node
-                                .in_neighbors
-                                .push(subtarget_id.clone());
-                        } else {
-                            log::panic!("Loop detected on target {}", then_target);
-                        }
-                    }
-                }
-
-                out_neighbors.push(subtarget_id);
-            }
-        }
-    }
-
-    graph::Node {
-        id: target_id.clone(),
-        out_neighbors,
-        in_neighbors,
-        action: None,
-        in_files: Vec::new(),
-        out_files: Vec::new(),
-        reach_count: 1,
-    }
-}
-
 fn create_target_node(
-    emakefile: &emake::Emakefile,
+    cwd: &Path,
+    emakefile: &mut emake::Emakefile,
     target_id: &String,
     graph: &mut graph::Graph,
     visited: &mut HashSet<String>,
 ) -> graph::Node {
-    visited.insert(target_id.clone());
-    let maybe_target_configuration = emakefile.targets.get(target_id);
+    println!("Generate target target={} cwd={}", target_id, cwd.to_str().unwrap());
+    
+    let emakefile_target = emake::loader::get_target(cwd, target_id, emakefile);
     let mut out_neighbors: Vec<String> = Vec::new();
     let in_neighbors: Vec<String> = Vec::new();
 
-    if let Some(target_configuration) = maybe_target_configuration {
-        for entry in target_configuration {
-            let mut then_targets: Vec<String> = Vec::new();
-            let mut maybe_subtarget: Option<String> = None;
-            let mut is_subtarget_action = false;
-            let mut in_files: Vec<String> = Vec::new();
-            let mut out_files: Vec<String> = Vec::new();
-
-            if let Some(in_files_value) = entry.get("in_files") {
-                if in_files_value.is_sequence() {
-                    in_files = in_files_value
-                        .as_sequence()
-                        .unwrap()
-                        .iter()
-                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                        .collect();
-                } else if in_files_value.is_mapping() {
-                    let mut mapping = String::from("{{");
-                    mapping.push_str(
-                        in_files_value
-                            .as_mapping()
-                            .unwrap()
-                            .keys()
-                            .next()
-                            .unwrap()
-                            .as_mapping()
-                            .unwrap()
-                            .keys()
-                            .next()
-                            .unwrap()
-                            .as_str()
-                            .unwrap(),
-                    );
-                    mapping.push_str("}}");
-                    in_files = Vec::from([mapping]);
-                } else {
-                    in_files = Vec::from([in_files_value.as_str().unwrap().to_string()]);
-                }
+    for entry in &emakefile_target {
+        let mut maybe_subtarget: Option<String> = None;
+        let then_targets: Vec<String> = extract_then_targets(entry);
+        let in_files: Vec<InFile> = extract_in_files(cwd, entry);
+        let out_files: Vec<String> = extract_out_files(cwd, entry);
+        
+        for then_target in &then_targets {
+            if !visited.contains(then_target) {
+                visited.insert(target_id.clone());
+                let mut n = create_target_node(
+                    cwd,
+                    emakefile,
+                    then_target,
+                    graph,
+                    visited,
+                );
+                n.in_files = in_files.clone();
+                n.out_files = out_files.clone();
+                graph.nodes.insert(n.id.clone(), n);
             }
+        }
 
-            if let Some(out_files_value) = entry.get("out_files") {
-                if out_files_value.is_sequence() {
-                    out_files = out_files_value
-                        .as_sequence()
-                        .unwrap()
-                        .iter()
-                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                        .collect();
-                } else if out_files_value.is_mapping() {
-                    let mut mapping = String::from("{{");
-                    mapping.push_str(
-                        out_files_value
-                            .as_mapping()
-                            .unwrap()
-                            .keys()
-                            .next()
-                            .unwrap()
-                            .as_mapping()
-                            .unwrap()
-                            .keys()
-                            .next()
-                            .unwrap()
-                            .as_str()
-                            .unwrap(),
-                    );
-                    mapping.push_str("}}");
-                    out_files = Vec::from([mapping]);
-                } else {
-                    out_files = Vec::from([out_files_value.as_str().unwrap().to_string()]);
-                }
+        for (key, value) in entry {
+            if key != "then" && key != "in_files" && key != "out_files" {
+                let plugin_id = key;
+                let args = value;
+                let mut n = create_action_node(&plugin_id, args, emakefile.path.as_ref().unwrap().to_string(), &in_files, &out_files);
+                n.in_neighbors.push(target_id.clone());
+                n.in_files = in_files.clone();
+                n.out_files = out_files.clone();
+                let id = n.id.clone();
+                graph.nodes.insert(id.clone(), n);
+                maybe_subtarget = Some(id.clone());
             }
+        }
 
-            if let Some(then_value) = entry.get("then") {
-                let l: Vec<String>;
-                if then_value.is_sequence() {
-                    l = then_value
-                        .as_sequence()
-                        .unwrap()
-                        .iter()
-                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                        .collect();
-                } else if then_value.is_mapping() {
-                    let mut mapping = String::from("{{");
-                    mapping.push_str(
-                        then_value
-                            .as_mapping()
-                            .unwrap()
-                            .keys()
-                            .next()
-                            .unwrap()
-                            .as_mapping()
-                            .unwrap()
-                            .keys()
-                            .next()
-                            .unwrap()
-                            .as_str()
-                            .unwrap(),
-                    );
-                    mapping.push_str("}}");
-                    l = Vec::from([mapping]);
-                } else {
-                    l = Vec::from([then_value.as_str().unwrap().to_string()]);
+        if let Some(subtarget_id) = maybe_subtarget {
+            if let Some(subtarget) = graph.nodes.get_mut(&subtarget_id) {
+                for then_target in &then_targets {
+                    subtarget.out_neighbors.push(then_target.clone());
                 }
 
-                for s in l {
-                    if !visited.contains(&s) {
-                        let mut n = create_target_node(emakefile, &s, graph, &mut visited.clone());
-                        n.in_files = in_files.clone();
-                        n.out_files = out_files.clone();
-                        graph.nodes.insert(n.id.clone(), n);
-                        then_targets.push(s);
+                for then_target in &then_targets {
+                    let maybe_then_target_node = graph
+                        .nodes
+                        .get_mut(then_target);
+                    
+                    if let Some(then_target_node) = maybe_then_target_node {
+                        then_target_node
+                            .in_neighbors
+                            .push(subtarget_id.clone());
+                    } else {
+                        log::panic!("Loop detected on target {}", then_target);
                     }
                 }
             }
 
-            if let Some(target_value) = entry.get("target") {
-                let subtarget_id = target_value.as_str().unwrap().to_string();
-
-                if !visited.contains(&subtarget_id) {
-                    visited.insert(subtarget_id.clone());
-                    let mut n =
-                        create_target_node(emakefile, &subtarget_id, graph, &mut visited.clone());
-                    n.in_neighbors.push(target_id.clone());
-                    n.in_files = in_files.clone();
-                    n.out_files = out_files.clone();
-                    graph.nodes.insert(n.id.clone(), n);
-                    maybe_subtarget = Some(subtarget_id);
-                }
-            }
-
-            for (key, value) in entry {
-                if key != "then" && key != "target" && key != "in_files" && key != "out_files" {
-                    is_subtarget_action = true;
-                    let plugin_id = key;
-                    let args = value;
-                    let mut n = create_action_node(&plugin_id, args);
-                    n.in_neighbors.push(target_id.clone());
-                    n.in_files = in_files.clone();
-                    n.out_files = out_files.clone();
-                    let id = n.id.clone();
-                    graph.nodes.insert(id.clone(), n);
-                    maybe_subtarget = Some(id.clone());
-                }
-            }
-
-            if let Some(subtarget_id) = maybe_subtarget {
-                if is_subtarget_action {
-                    if let Some(subtarget) = graph.nodes.get_mut(&subtarget_id) {
-                        for then_target in &then_targets {
-                            subtarget.out_neighbors.push(then_target.clone());
-                        }
-
-                        for then_target in &then_targets {
-                            graph
-                                .nodes
-                                .get_mut(then_target)
-                                .unwrap()
-                                .in_neighbors
-                                .push(subtarget_id.clone());
-                        }
-                    }
-                } else {
-                    let leaves = get_node_leaves(graph, &subtarget_id);
-                    for leaf_id in &leaves {
-                        let maybe_node = graph.nodes.get_mut(leaf_id);
-                        if let Some(node) = maybe_node {
-                            for then_target in &then_targets {
-                                node.out_neighbors.push(then_target.clone());
-                            }
-
-                            for then_target in &then_targets {
-                                graph
-                                    .nodes
-                                    .get_mut(then_target)
-                                    .unwrap()
-                                    .in_neighbors
-                                    .push(leaf_id.clone());
-                            }
-                        }
-                    }
-                }
-
-                out_neighbors.push(subtarget_id);
-            }
+            out_neighbors.push(subtarget_id);
         }
     }
 
@@ -425,18 +250,17 @@ fn create_target_node(
         action: None,
         in_files: Vec::new(),
         out_files: Vec::new(),
-        reach_count: 1,
+        cwd: emakefile.path.as_ref().unwrap().clone(),
     }
 }
 
-pub fn generate(emakefile: &emake::Emakefile, target_id: &String) -> graph::Graph {
+pub fn generate(cwd: &Path, emakefile: &mut emake::Emakefile, target_id: &String) -> graph::Graph {
     let mut graph = graph::Graph {
         nodes: HashMap::new(),
         root: String::from(""),
     };
     let mut visited = HashSet::new();
-    let root = create_target_node2(emakefile, target_id, &mut graph, &mut visited);
-    // let root = create_target_node(emakefile, target_id, &mut graph, &mut visited);
+    let root = create_target_node(cwd, emakefile, target_id, &mut graph, &mut visited);
     graph.root = target_id.clone();
     graph.nodes.insert(target_id.clone(), root);
 

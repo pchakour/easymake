@@ -9,5 +9,6 @@ type TargetEntry = HashMap<String, Value>;
 
 #[derive(Debug, Deserialize)]
 pub struct Emakefile {
+    pub path: Option<String>,
     pub targets: HashMap<String, Vec<TargetEntry>>,
 }

@@ -33,37 +33,37 @@ fn extract_function_args(element: &str, function: &str) -> Vec<String> {
     args.split(',').map(|e| { e.replace('"', "").replace("'", "")}).collect()
 }
 
-fn call_function(cwd: &Path, element: &str, maybe_replacements: Option<&HashMap<&str, &str>>) -> Option<String> {
-    let mut replaced_element = String::from(element);
-    if let Some(replacements) = maybe_replacements {
-        let re = Regex::new(r"\$\{([^}]+?)\}").unwrap();
-        replaced_element = re.replace_all(element, |caps: &regex::Captures| {
-            return replacements.get(&caps[1].trim()).unwrap_or(&&caps[0]).to_string();
-        }).to_string();
-    }
-
+fn call_function(cwd: &Path, element: &str) -> Option<String> {
     let glob_re: Regex = Regex::new(r####"["|']{0,1}\s*glob(.[^)])\s*["|']{0,1}"####).unwrap();
-    if glob_re.is_match(&replaced_element) {
-        let args = extract_function_args(&replaced_element, "glob");
+    if glob_re.is_match(&element) {
+        let args = extract_function_args(&element, "glob");
         return call_glob(cwd, &args[0]);
     }
 
     return None;
 }
 
-pub fn compile(cwd: &str, content: &str, maybe_replacements: Option<&HashMap<&str, &str>>) -> String {
+pub fn compile(cwd: &str, content: &str, maybe_replacements: Option<&HashMap<String, String>>) -> String {
     let current_dir = std::path::Path::new(cwd);
     let re = Regex::new(r"\{\{(.*?)\}\}").unwrap();
     let result = re.replace_all(content, |caps: &regex::Captures| {
-        if let Some(result_function) =  call_function(current_dir, &caps[1].trim(), maybe_replacements) {
-            return result_function;
-        }
-
+        let mut element = String::from(caps[1].trim());
         if let Some(replacements) = maybe_replacements {
-            return replacements.get(&caps[1].trim()).unwrap_or(&&caps[0]).to_string();
-        }
+            let var_re = Regex::new(r"\$\{([^}]+)\}").unwrap();
+            element = var_re.replace_all(&element, |var_caps: &regex::Captures| {
+                return replacements.get(&var_caps[1].trim().to_string()).unwrap_or(&&var_caps[0].to_string()).to_string();
+            }).to_string();
 
-        caps[0].to_string()
+            if replacements.contains_key(element.as_str()) {
+                element = replacements.get(element.as_str()).unwrap().to_string();
+            }
+        }
+        
+        if let Some(result_function) =  call_function(current_dir, &element) {
+            element = result_function;
+        }
+        
+        element
     });
 
     // println!("RESULT {:?}", result);

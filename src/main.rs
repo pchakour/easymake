@@ -1,6 +1,6 @@
 mod emake;
 mod graph;
-mod plugins;
+mod actions;
 mod console;
 mod commands;
 
@@ -21,9 +21,14 @@ struct Args {
 async fn main() {
     let matches = Command::new("MyApp")
         .version("0.0.1")
-        .about("Tool to build everut")
+        .about("The tool to build everything")
         .arg(arg!(--cwd <PATH>).required(false))
         .subcommand(Command::new("clean").about("Clean cache"))
+        .subcommand(
+            Command::new("graph")
+                .about("Generate graphviz graph")
+                .arg(arg!([target] "Target to analyze").required(true))
+            )
         .subcommand(
             Command::new("build")
                 .about("Build a target")
