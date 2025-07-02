@@ -10,6 +10,8 @@ pub struct PlainCredentials {
 pub trait Credentials: Send + Sync {
     fn extract<'a>(
         &'a self,
+        cwd: &'a str,
+        unextracted_credentials: &'a HashMap<String, serde_yml::Value>,
     ) -> PlainCredentials;
     fn clone_box(&self) -> Box<dyn Credentials + Send + Sync>;
 }

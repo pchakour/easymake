@@ -1,5 +1,4 @@
 use hex::encode;
-use serde_yml::modules::error::new;
 use serde_yml::Value;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
@@ -176,7 +175,7 @@ fn create_target_node(
     graph: &mut graph::Graph,
     visited: &mut HashSet<String>,
 ) -> graph::Node {
-    println!("Generate target target={} cwd={}", target_id, cwd.to_str().unwrap());
+    println!("Generate target target={} cwd={} emakefile_path={}", target_id, cwd.to_str().unwrap(), emakefile.path.clone().unwrap());
     
     let emakefile_target = emake::loader::get_target(cwd, target_id, emakefile);
     let mut out_neighbors: Vec<String> = Vec::new();

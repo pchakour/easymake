@@ -5,7 +5,7 @@ mod console;
 mod commands;
 mod credentials;
 
-use std::{env, fs, path::Path};
+use std::{env, fs, path::Path, sync::Arc};
 use clap::{arg, Command, Parser};
 
 #[derive(Parser, Debug)]
@@ -16,6 +16,21 @@ struct Args {
     cwd: Option<String>,
     command: String,
     target: Option<String>,
+}
+
+use dashmap::DashMap;
+use once_cell::sync::Lazy;
+use tokio::sync::Mutex;
+
+pub static GLOBAL_MUTEXES: Lazy<DashMap<String, Arc<Mutex<()>>>> = Lazy::new(DashMap::new);
+
+pub async fn get_mutex_for_id(id: &str) -> Arc<Mutex<()>> {
+    use dashmap::mapref::entry::Entry;
+
+    match GLOBAL_MUTEXES.entry(id.to_string()) {
+        Entry::Occupied(entry) => entry.get().clone(),
+        Entry::Vacant(entry) => entry.insert(Arc::new(Mutex::new(()))).clone(),
+    }
 }
 
 #[tokio::main]

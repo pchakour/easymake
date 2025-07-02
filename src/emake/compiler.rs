@@ -3,6 +3,8 @@ use std::{collections::HashMap, path::Path};
 use glob::glob;
 use regex::Regex;
 
+use crate::{console::log, emake::{self, loader::{Target, TargetType}}};
+
 fn call_glob(cwd: &Path, pattern: &String) -> Option<String> {
     let absolute_pattern = cwd.join(pattern);
     let mut paths: Vec<String> = Vec::new();
@@ -43,11 +45,80 @@ fn call_function(cwd: &Path, element: &str) -> Option<String> {
     return None;
 }
 
-pub fn compile(cwd: &str, content: &str, maybe_replacements: Option<&HashMap<String, String>>) -> String {
+fn get_user_variable(user_variable: &String, cwd: &Path, emakefile_current_path: &String) -> Result<String, String> {
+    let result_target = emake::loader::get_target_on_path(
+        cwd, 
+        user_variable, 
+        emakefile_current_path, 
+        Some(TargetType::Variables)
+    );
+
+    if let Ok(target) = result_target {
+        match target {
+            Target::VariableEntry(variable) => {
+                return Ok(variable);
+            }
+            Target::TargetEntry(_) => {},
+            Target::CredentialEntry(_) => {},
+        }
+    }
+    
+    Err(format!("Variable {} not found", user_variable))
+}
+
+pub fn compile(
+    cwd: &str,
+    content: &str,
+    emakefile_current_path: &String,
+    maybe_replacements: Option<&HashMap<String, String>>
+) -> String {
     let current_dir = std::path::Path::new(cwd);
     let re = Regex::new(r"\{\{(.*?)\}\}").unwrap();
     let result = re.replace_all(content, |caps: &regex::Captures| {
         let mut element = String::from(caps[1].trim());
+
+        // Replace user variables inside ${}
+        let var_re = Regex::new(r"\$\{([^}]+)\}").unwrap();
+        element = var_re.replace_all(&element, |var_caps: &regex::Captures| {
+            let result_variable = get_user_variable(
+                &var_caps[1].trim().to_string(), 
+                current_dir,
+                emakefile_current_path
+            );
+
+            match result_variable {
+                Ok(variable) => {
+                    return variable;
+                },
+                Err(error) => {
+                    let mut throw_error = true;
+                    if let Some(replacements) = maybe_replacements {
+                        if replacements.contains_key(var_caps[1].trim()) {
+                            throw_error = false;
+                        }
+                    }
+
+                    if throw_error {
+                        log::error!("{}", error);
+                        std::process::exit(1);
+                    } else {
+                        return var_caps[0].to_string();
+                    }
+                }
+            }
+        }).to_string();
+
+        let result_variable = get_user_variable(
+            &element.trim().to_string(), 
+            current_dir,
+            emakefile_current_path
+        );
+
+        if let Ok(variable) = result_variable {
+            element = variable;
+        }
+
+        // Replace non user variables
         if let Some(replacements) = maybe_replacements {
             let var_re = Regex::new(r"\$\{([^}]+)\}").unwrap();
             element = var_re.replace_all(&element, |var_caps: &regex::Captures| {
@@ -58,10 +129,12 @@ pub fn compile(cwd: &str, content: &str, maybe_replacements: Option<&HashMap<Str
                 element = replacements.get(element.as_str()).unwrap().to_string();
             }
         }
-        
+
+        // Call functions
         if let Some(result_function) =  call_function(current_dir, &element) {
             element = result_function;
         }
+
         
         element
     });

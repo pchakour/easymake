@@ -1,7 +1,8 @@
 use crate::console::log;
 use crate::credentials::{self, CredentialsStore};
+use crate::emake::loader::{Target, TargetType};
 use crate::graph::InFile;
-use crate::{emake, graph};
+use crate::{emake, graph, get_mutex_for_id};
 use crate::actions::ActionsStore;
 use std::fs::File;
 use std::io::{copy, BufWriter};
@@ -146,18 +147,54 @@ async fn is_file_changed(cwd: &String, file: &String) -> bool {
 async fn download_file(
     url: &str,
     output_path: &str,
+    cwd: &String,
+    emakefile_cwd: &String,
     maybe_credentials_key: &Option<String>,
     credentials_store: Arc<RwLock<CredentialsStore>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     log::text!("{}⏳ Downloading file {}...", log::INDENT, url);
 
     let read_credentials_store = credentials_store.read().await;
-    let mut maybe_credentials = None;
+    let mut maybe_credentials: Option<credentials::PlainCredentials> = None;
     if let Some(credentials_key) = maybe_credentials_key {
-        if let Some(store) = read_credentials_store.get(credentials_key) {
-            maybe_credentials = Some(store.extract());
-        } else {
-            log::error!("The specified credentials type doesn't exist {}", credentials_key);
+        let result_credentials_config = emake::loader::get_target_on_path(
+            &PathBuf::from(cwd), 
+            credentials_key, 
+            emakefile_cwd,
+            Some(TargetType::Credentials),
+        );
+
+        match result_credentials_config {
+            Ok(credentials_config) => {
+                match credentials_config {
+                    Target::CredentialEntry(credentials_config) => {
+                        if !credentials_config.contains_key("type") {
+                            log::error!("The credential {} must contains a type", credentials_key);
+                            process::exit(1);
+                        }
+                        let credentials_type = String::from(credentials_config.get("type").unwrap().as_str().unwrap());
+                        let maybe_credentials_plugin = read_credentials_store.get(&credentials_type);
+                        if let Some(credentials_plugin) = maybe_credentials_plugin {
+                            maybe_credentials = Some(credentials_plugin.extract(cwd, &credentials_config));
+                        } else {
+                            log::error!("The credential type {} does not exist", credentials_type);
+                            process::exit(1);
+                        }
+                    },
+                    Target::TargetEntry(_) => {
+                        log::error!("The specified path {} is not a credential", credentials_key);
+                        std::process::exit(1);
+                    },
+                    Target::VariableEntry(_) => {
+                        log::error!("The specified path {} is not a credential", credentials_key);
+                        std::process::exit(1);
+                    }
+                }
+            },
+            Err(error) => {
+                log::error!("{}", error);
+                std::process::exit(1);
+            }
         }
     }
 
@@ -203,29 +240,8 @@ fn get_filename_from_url(url: &str) -> Option<String> {
     None
 }
 
-// async fn compute_out_files_cache(cwd: &String, cache_to_update: Arc<RwLock<Vec<String>>>) {
-//     let working_dir = get_working_dir_path(cwd, true).await;
-//     let default_replacements = HashMap::from([
-//         ("EMAKE_WORKING_DIR", working_dir.as_str())
-//     ]);
-
-//     for out_file in cache_to_update.read().await.into_iter() {
-//         let compiled_out_file_string = emake::compiler::compile(cwd, &out_file, Some(&default_replacements));
-//         let mut files = Vec::from([compiled_out_file_string.clone()]);
-//         let parsed_compiled_files_result: Result<Vec<String>, _> = serde_yml::from_str(&compiled_out_file_string);
-//         match parsed_compiled_files_result {
-//             Ok(parsed_compiled_files) => files = parsed_compiled_files,
-//             Err(_) => ()
-//         }
-
-//         for file in files {
-//             cache_to_update.write().await.insert(file);
-//         }
-//     }
-// }
-
 async fn run_action(
-    action_id: &String,
+    _action_id: &String,
     silent: bool,
     cwd: &String,
     emakefile_cwd: &String,
@@ -253,7 +269,12 @@ async fn run_action(
 
         // Get in files modification date
         for in_file in in_files {
-            let compiled_in_file_string = emake::compiler::compile(cwd, &in_file.file, Some(&default_replacements));
+            let compiled_in_file_string = emake::compiler::compile(
+                cwd, 
+                &in_file.file, 
+                emakefile_cwd, 
+                Some(&default_replacements)
+            );
             let mut files = Vec::from([compiled_in_file_string.clone()]);
 
             let parsed_compiled_files_result: Result<Vec<String>, _> = serde_yml::from_str(&compiled_in_file_string);
@@ -270,7 +291,7 @@ async fn run_action(
                     output.push(&filename);
                     let output_string = String::from(output.to_str().unwrap());
                     if is_file_changed(cwd, &output_string).await {
-                        download_file(file, &output_string, &in_file.credentials, credentials_store.clone()).await.unwrap();
+                        download_file(file, &output_string, cwd, emakefile_cwd, &in_file.credentials, credentials_store.clone()).await.unwrap();
                     }
                     files_to_replace.insert(output_string, index);
                 }
@@ -284,7 +305,11 @@ async fn run_action(
         }
 
         for out_file in out_files {
-            let compiled_out_file_string = emake::compiler::compile(cwd, out_file, Some(&default_replacements));
+            let compiled_out_file_string = emake::compiler::compile(cwd, 
+                out_file, 
+                emakefile_cwd, 
+                Some(&default_replacements)
+            );
             let mut files = Vec::from([compiled_out_file_string.clone()]);
 
             let parsed_compiled_files_result: Result<Vec<String>, _> = serde_yml::from_str(&compiled_out_file_string);
@@ -334,6 +359,7 @@ fn bfs_parallel(
     node_id: String,
     semaphore: Arc<Semaphore>,
     running_tasks: Arc<RwLock<HashMap<String, JoinHandle<()>>>>,
+    emakefile: Arc<RwLock<emake::Emakefile>>,
     actions_store: Arc<RwLock<ActionsStore>>,
     credentials_store: Arc<RwLock<CredentialsStore>>,
     visited: Arc<RwLock<HashSet<String>>>,
@@ -341,7 +367,6 @@ fn bfs_parallel(
     cwd: String,
     root_dir: String,
     cache_to_update: Arc<RwLock<Vec<String>>>,
-    // outfiles: Arc<RwLock<Vec<String>>>,
     p_current_step: usize,
     total_steps: usize,
 ) -> impl Future + Send {
@@ -388,6 +413,9 @@ fn bfs_parallel(
                         action_number += 1;
                         log::step!(current_step, total_steps, "Running action {} of target {}", action_number, node_id);
                         let r = task::spawn(async move {
+                            let m = get_mutex_for_id(&action_id).await;
+                            let _guard = m.lock().await;
+                            println!("Locked for {}", action_id);
                             run_action(
                                 &action_id,
                                 silent,
@@ -412,11 +440,11 @@ fn bfs_parallel(
                     let neighbor_clone = neighbor_id.clone();
                     let semaphore_clone = Arc::clone(&semaphore);
                     let running_tasks_clone = Arc::clone(&running_tasks);
+                    let emakefile_clone = Arc::clone(&emakefile);
                     let actions_store_clone = Arc::clone(&actions_store);
                     let credentials_store_clone = Arc::clone(&credentials_store);
                     let visited_clone = Arc::clone(&visited);
                     let cache_to_update_clone = Arc::clone(&cache_to_update);
-                    // let outfiles_clone = Arc::clone(&outfiles);
                     let silent_clone = silent.clone();
 
                     Box::pin(bfs_parallel(
@@ -424,6 +452,7 @@ fn bfs_parallel(
                         neighbor_clone,
                         semaphore_clone,
                         running_tasks_clone,
+                        emakefile_clone,
                         actions_store_clone,
                         credentials_store_clone,
                         visited_clone,
@@ -431,9 +460,8 @@ fn bfs_parallel(
                         cwd.clone(),
                         root_dir.clone(),
                         cache_to_update_clone,
-                        // outfiles_clone,
                         current_step,
-                        total_steps
+                        total_steps,
                     ))
                     .await;
                 }
@@ -445,6 +473,7 @@ fn bfs_parallel(
 pub async fn run_target(
     target_id: &String,
     graph: graph::Graph,
+    emakefile: emake::Emakefile,
     actions_store: ActionsStore,
     credentials_store: CredentialsStore,
     silent: &bool,
@@ -457,6 +486,7 @@ pub async fn run_target(
     let semaphore = Arc::new(Semaphore::new(15));
     let running_tasks = Arc::new(RwLock::new(HashMap::new()));
     let running_tasks_clone = Arc::clone(&running_tasks);
+    let memakefile = Arc::new(RwLock::new(emakefile));
     let mactions_store = Arc::new(RwLock::new(actions_store));
     let mcredentials_store = Arc::new(RwLock::new(credentials_store));
     let visited = Arc::new(RwLock::new(HashSet::new()));
@@ -476,6 +506,7 @@ pub async fn run_target(
         target_id.clone(),
         semaphore,
         running_tasks_clone,
+        memakefile,
         mactions_store,
         mcredentials_store,
         visited,
@@ -485,7 +516,7 @@ pub async fn run_target(
         cache_to_update,
         // outfiles,
         0,
-        total_steps
+        total_steps,
     )
     .await;
 

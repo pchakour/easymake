@@ -14,7 +14,7 @@ impl Action for Cmd {
     fn action<'a>(
         &'a self,
         cwd: &'a str,
-        _emakefile_cwd: &'a str,
+        emakefile_cwd: &'a str,
         silent: bool,
         args: &'a Value,
         in_files: &'a Vec<String>,
@@ -47,7 +47,12 @@ impl Action for Cmd {
                 replacements.extend(default_replacements.to_owned());
             }
     
-            command = emake::compiler::compile(cwd, &command, Some(&replacements));
+            command = emake::compiler::compile(
+                cwd, 
+                &command, 
+                &emakefile_cwd.to_string(), 
+                Some(&replacements)
+            );
             log::text!("Run command {:?}", command);
     
             let mut shell = "sh";
