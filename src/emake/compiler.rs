@@ -1,9 +1,9 @@
-use std::{collections::HashMap, path::Path};
+use std::{collections::HashMap, path::{Path}};
 
 use glob::glob;
 use regex::Regex;
 
-use crate::{console::log, emake::{self, loader::{Target, TargetType}}};
+use crate::{console::log, emake::{self, loader::{Target, TargetType}}, CREDENTIALS_STORE};
 
 fn call_glob(cwd: &Path, pattern: &String) -> Option<String> {
     let absolute_pattern = cwd.join(pattern);
@@ -24,6 +24,76 @@ fn call_glob(cwd: &Path, pattern: &String) -> Option<String> {
     Some(result)
 }
 
+fn call_credential_password(cwd: &Path, emakefile_current_path: &String, credential_name: &String) -> Option<String> {
+    let result_credentials_config = emake::loader::get_target_on_path(
+        cwd, 
+        credential_name, 
+        emakefile_current_path,
+        Some(TargetType::Credentials),
+    );
+
+    match result_credentials_config {
+        Ok(credential_config) => {
+            match credential_config {
+                Target::CredentialEntry(raw_credential) => {
+                    let credential_type = String::from(raw_credential.get("type").unwrap().as_str().unwrap());
+                    let maybe_credential_plugin = CREDENTIALS_STORE.get(&credential_type);
+                    match maybe_credential_plugin {
+                        Some(credential_plugin) => {
+                            return credential_plugin.extract(cwd.to_str().unwrap(), &raw_credential).password;
+                        },
+                        None => {
+                            log::error!("Type {} doesn't exist for credential {}", credential_type, credential_name);
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                Target::TargetEntry(_) => None,
+                Target::VariableEntry(_) => None,
+            }
+        },
+        Err(error) => {
+            log::error!("{}", error);
+            std::process::exit(1);
+        }
+    }
+}
+
+fn call_credential_username(cwd: &Path, emakefile_current_path: &String, credential_name: &String) -> Option<String> {
+    let result_credentials_config = emake::loader::get_target_on_path(
+        cwd, 
+        credential_name, 
+        emakefile_current_path,
+        Some(TargetType::Credentials),
+    );
+
+    match result_credentials_config {
+        Ok(credential_config) => {
+            match credential_config {
+                Target::CredentialEntry(raw_credential) => {
+                    let credential_type = String::from(raw_credential.get("type").unwrap().as_str().unwrap());
+                    let maybe_credential_plugin = CREDENTIALS_STORE.get(&credential_type);
+                    match maybe_credential_plugin {
+                        Some(credential_plugin) => {
+                            return Some(credential_plugin.extract(cwd.to_str().unwrap(), &raw_credential).username);
+                        },
+                        None => {
+                            log::error!("Type {} doesn't exist for credential {}", credential_type, credential_name);
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                Target::TargetEntry(_) => None,
+                Target::VariableEntry(_) => None,
+            }
+        },
+        Err(error) => {
+            log::error!("{}", error);
+            std::process::exit(1);
+        }
+    }
+}
+
 fn extract_function_args(element: &str, function: &str) -> Vec<String> {
     let mut args = String::from(element);
     args.pop();
@@ -35,11 +105,23 @@ fn extract_function_args(element: &str, function: &str) -> Vec<String> {
     args.split(',').map(|e| { e.replace('"', "").replace("'", "")}).collect()
 }
 
-fn call_function(cwd: &Path, element: &str) -> Option<String> {
+fn call_function(cwd: &Path, emakefile_current_path: &String, element: &str) -> Option<String> {
     let glob_re: Regex = Regex::new(r####"["|']{0,1}\s*glob(.[^)])\s*["|']{0,1}"####).unwrap();
     if glob_re.is_match(&element) {
         let args = extract_function_args(&element, "glob");
         return call_glob(cwd, &args[0]);
+    }
+
+    let credential_password_re: Regex = Regex::new(r####"["|']{0,1}\s*credential_password(.[^)])\s*["|']{0,1}"####).unwrap();
+    if credential_password_re.is_match(&element) {
+        let args = extract_function_args(&element, "credential_password");
+        return call_credential_password(cwd, emakefile_current_path, &args[0]);
+    }
+
+    let credential_username_re: Regex = Regex::new(r####"["|']{0,1}\s*credential_username(.[^)])\s*["|']{0,1}"####).unwrap();
+    if credential_username_re.is_match(&element) {
+        let args = extract_function_args(&element, "credential_username");
+        return call_credential_username(cwd, emakefile_current_path, &args[0]);
     }
 
     return None;
@@ -131,7 +213,7 @@ pub fn compile(
         }
 
         // Call functions
-        if let Some(result_function) =  call_function(current_dir, &element) {
+        if let Some(result_function) =  call_function(current_dir, emakefile_current_path, &element) {
             element = result_function;
         }
 

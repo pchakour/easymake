@@ -24,7 +24,7 @@ pub enum Target {
 }
 
 fn read_file_content(path: &str) -> String {
-    // log::info!("Loading file {:?}", path);
+    log::info!("Loading file {:?}", path);
     let content = std::fs::read_to_string(path).unwrap();
     return content;
 }
@@ -77,6 +77,37 @@ fn extract_info_from_path(path: &String, cwd: &Path, emakefile_current_path: &St
 
     log::error!("Malformed target path {}", path);
     std::process::exit(1);
+}
+
+fn extract_info_from_path2(path: &String, cwd: &Path) -> PathInfo {
+    println!("extract_info_from_path2 {} {:?}", path, cwd);
+    let tmp = path.replace("//", (String::from(cwd.to_str().unwrap()) + "/").as_str());
+    let mut parts: Vec<&str> = tmp.split('/').collect();
+    let target_parts: Vec<&str> = parts.pop().unwrap().split(':').collect();
+
+    let target_type: TargetType;
+    let target_name: String;
+    
+    if target_parts.len() == 2 {
+        target_type = target_type_str_to_enum(target_parts[0]);
+        target_name = String::from(target_parts[1]);
+    } else {
+        target_type = TargetType::Targets;
+        target_name = String::from(target_parts[0]);
+    }
+
+    let emakefile_path = PathBuf::from(parts.join("/")).join("Emakefile");
+
+    return PathInfo {
+        emakefile_path,
+        target_type,
+        target_name
+    }
+}
+
+pub fn get_target_name(target_path: &String) -> String {
+    let mut parts: Vec<&str> = target_path.split(":").collect();
+    parts.pop().unwrap().to_string()
 }
 
 pub fn get_target_on_path(
@@ -143,6 +174,20 @@ pub fn get_target(cwd: &Path, target: &String, emakefile: &mut emake::Emakefile)
         return emakefile.targets.get(&target_path_info.target_name).unwrap().to_owned();
     } else {
         log::error!("No target {} found", target);
+        std::process::exit(1);
+    }
+}
+
+pub fn get_target2(cwd: &Path, target_absolute_path: &String, emakefile: &mut emake::Emakefile) -> Vec<TargetEntry> {
+    // Check if the target exists in the current Emakefile
+    let target_path_info = extract_info_from_path2(target_absolute_path, cwd);
+    println!("TEST {:?}", target_path_info);
+    *emakefile = emake::loader::load_file(&target_path_info.emakefile_path.to_str().unwrap());
+
+    if emakefile.targets.contains_key(&target_path_info.target_name) {
+        return emakefile.targets.get(&target_path_info.target_name).unwrap().to_owned();
+    } else {
+        log::error!("No target {} found", target_absolute_path);
         std::process::exit(1);
     }
 }

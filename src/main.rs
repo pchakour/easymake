@@ -22,7 +22,11 @@ use dashmap::DashMap;
 use once_cell::sync::Lazy;
 use tokio::sync::Mutex;
 
+use crate::{actions::ActionsStore, credentials::CredentialsStore};
+
 pub static GLOBAL_MUTEXES: Lazy<DashMap<String, Arc<Mutex<()>>>> = Lazy::new(DashMap::new);
+pub static ACTIONS_STORE: Lazy<ActionsStore> = Lazy::new(|| actions::instanciate());
+pub static CREDENTIALS_STORE: Lazy<CredentialsStore> = Lazy::new(|| credentials::instanciate());
 
 pub async fn get_mutex_for_id(id: &str) -> Arc<Mutex<()>> {
     use dashmap::mapref::entry::Entry;

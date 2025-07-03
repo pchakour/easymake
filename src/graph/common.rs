@@ -15,3 +15,4 @@ pub fn is_downloadable_file(url: &str) -> bool {
     }
     false
 }
+

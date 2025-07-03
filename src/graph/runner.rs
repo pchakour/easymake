@@ -2,7 +2,7 @@ use crate::console::log;
 use crate::credentials::{self, CredentialsStore};
 use crate::emake::loader::{Target, TargetType};
 use crate::graph::InFile;
-use crate::{emake, graph, get_mutex_for_id};
+use crate::{emake, get_mutex_for_id, graph, ACTIONS_STORE, CREDENTIALS_STORE};
 use crate::actions::ActionsStore;
 use std::fs::File;
 use std::io::{copy, BufWriter};
@@ -89,17 +89,16 @@ async fn get_file_modification_time(file_absolute_path: &String) -> Option<Strin
     None
 }
 
-async fn write_cache(cwd: &String, cache_to_update: Arc<RwLock<Vec<String>>>,) {
+async fn write_cache(cwd: &String, cache_to_update: Arc<RwLock<Vec<(String, String)>>>,) {
     let read_cache_to_update = cache_to_update.read().await;
-    for file_absolute_path in read_cache_to_update.iter() {
+    for (file_absolute_path, action_id) in read_cache_to_update.iter() {
         if let Ok(file_exists) = fs::try_exists(&file_absolute_path).await {
             if file_exists {
-                if is_file_changed(cwd, file_absolute_path).await {
-                    println!("Absolute path {}", file_absolute_path);
+                if is_file_changed(cwd, file_absolute_path, action_id).await {
                     let maybe_current_time = get_file_modification_time(&file_absolute_path).await;
     
                     if let Some(current_time) = maybe_current_time {
-                        write_file_in_cache(cwd, &file_absolute_path, &current_time).await;
+                        write_file_in_cache(cwd, file_absolute_path, action_id, &current_time).await;
                     }
                 }
             } else {
@@ -110,7 +109,7 @@ async fn write_cache(cwd: &String, cache_to_update: Arc<RwLock<Vec<String>>>,) {
     }
 }
 
-async fn write_file_in_cache(cwd: &String, file_absolute_path: &String, modification_date: &String) {
+async fn write_file_in_cache(cwd: &String, file_absolute_path: &String, action_id: &String, modification_date: &String) {
     let cache_file_path = get_file_cache(cwd, &file_absolute_path).await;
     let cache_file_dir = cache_file_path.parent().unwrap();
     if let Ok(cache_file_dir_exists) = fs::try_exists(&cache_file_dir).await {
@@ -120,11 +119,12 @@ async fn write_file_in_cache(cwd: &String, file_absolute_path: &String, modifica
         }
 
         // println!("Write file cache {:?}", cache_file_path);
+        todo!("TODO each line get action_id");
         fs::write(&cache_file_path, &modification_date).await.unwrap();
     }
 }
 
-async fn is_file_changed(cwd: &String, file: &String) -> bool {
+async fn is_file_changed(cwd: &String, file: &String, action_id: &String) -> bool {
     let mut file_changed = true;
     let file_absolute_path = String::from(get_absolute_file_path(cwd, file).to_str().unwrap_or(""));
 
@@ -134,6 +134,7 @@ async fn is_file_changed(cwd: &String, file: &String) -> bool {
             if cache_file_exists {
                 let previous_time =
                     fs::read_to_string(&cache_file).await.unwrap();
+                    todo!("TODO each line get action_id");
                 if previous_time == modification_date {
                     file_changed = false;
                 }
@@ -150,11 +151,9 @@ async fn download_file(
     cwd: &String,
     emakefile_cwd: &String,
     maybe_credentials_key: &Option<String>,
-    credentials_store: Arc<RwLock<CredentialsStore>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     log::text!("{}⏳ Downloading file {}...", log::INDENT, url);
 
-    let read_credentials_store = credentials_store.read().await;
     let mut maybe_credentials: Option<credentials::PlainCredentials> = None;
     if let Some(credentials_key) = maybe_credentials_key {
         let result_credentials_config = emake::loader::get_target_on_path(
@@ -173,7 +172,7 @@ async fn download_file(
                             process::exit(1);
                         }
                         let credentials_type = String::from(credentials_config.get("type").unwrap().as_str().unwrap());
-                        let maybe_credentials_plugin = read_credentials_store.get(&credentials_type);
+                        let maybe_credentials_plugin = CREDENTIALS_STORE.get(&credentials_type);
                         if let Some(credentials_plugin) = maybe_credentials_plugin {
                             maybe_credentials = Some(credentials_plugin.extract(cwd, &credentials_config));
                         } else {
@@ -241,21 +240,17 @@ fn get_filename_from_url(url: &str) -> Option<String> {
 }
 
 async fn run_action(
-    _action_id: &String,
+    action_id: &String,
     silent: bool,
     cwd: &String,
     emakefile_cwd: &String,
     in_files: &Vec<InFile>,
     out_files: &Vec<String>,
     action: &graph::Action,
-    actions_store: Arc<RwLock<ActionsStore>>,
-    credentials_store: Arc<RwLock<CredentialsStore>>,
-    cache_to_update: Arc<RwLock<Vec<String>>>,
+    cache_to_update: Arc<RwLock<Vec<(String, String)>>>,
 ) {
     log::info!("{}Running action {:?}", log::INDENT, action);
-    let read_plugin_store = actions_store.read().await;
-    let maybe_plugin = read_plugin_store.get(&action.plugin_id);
-    // let mut files_to_update_cache = HashSet::new();
+    let maybe_plugin = ACTIONS_STORE.get(&action.plugin_id);
     
     if let Some(plugin) = maybe_plugin {
         let mut need_to_run_action = in_files.len() == 0 && out_files.len() == 0;
@@ -291,7 +286,7 @@ async fn run_action(
                     output.push(&filename);
                     let output_string = String::from(output.to_str().unwrap());
                     if is_file_changed(cwd, &output_string).await {
-                        download_file(file, &output_string, cwd, emakefile_cwd, &in_file.credentials, credentials_store.clone()).await.unwrap();
+                        download_file(file, &output_string, cwd, emakefile_cwd, &in_file.credentials).await.unwrap();
                     }
                     files_to_replace.insert(output_string, index);
                 }
@@ -327,7 +322,7 @@ async fn run_action(
 
         for file in real_files {
             let file_absolute_path = String::from(get_absolute_file_path(cwd, &file).to_str().unwrap());
-            cache_to_update.write().await.push(file_absolute_path);
+            cache_to_update.write().await.push((file_absolute_path, action_id.clone()));
             let file_changed = is_file_changed(cwd, &file).await;
             if file_changed {
                 need_to_run_action = true;
@@ -335,7 +330,7 @@ async fn run_action(
         }
 
         if need_to_run_action {
-            plugin.action(
+            plugin.run(
                 cwd,
                 emakefile_cwd,
                 silent,
@@ -360,13 +355,11 @@ fn bfs_parallel(
     semaphore: Arc<Semaphore>,
     running_tasks: Arc<RwLock<HashMap<String, JoinHandle<()>>>>,
     emakefile: Arc<RwLock<emake::Emakefile>>,
-    actions_store: Arc<RwLock<ActionsStore>>,
-    credentials_store: Arc<RwLock<CredentialsStore>>,
     visited: Arc<RwLock<HashSet<String>>>,
     silent: bool,
     cwd: String,
     root_dir: String,
-    cache_to_update: Arc<RwLock<Vec<String>>>,
+    cache_to_update: Arc<RwLock<Vec<(String, String)>>>,
     p_current_step: usize,
     total_steps: usize,
 ) -> impl Future + Send {
@@ -404,8 +397,6 @@ fn bfs_parallel(
                     if let Some(action) = &neighbor.action {
                         // Run it using the plugin store
                         let _ = semaphore.acquire().await.unwrap();
-                        let actions_store_clone = Arc::clone(&actions_store);
-                        let credentials_store_clone = Arc::clone(&credentials_store);
                         let cache_to_update_clone = Arc::clone(&cache_to_update);
                         let cloned_action = action.clone();
                         let cloned_cwd = cwd.clone();
@@ -415,7 +406,6 @@ fn bfs_parallel(
                         let r = task::spawn(async move {
                             let m = get_mutex_for_id(&action_id).await;
                             let _guard = m.lock().await;
-                            println!("Locked for {}", action_id);
                             run_action(
                                 &action_id,
                                 silent,
@@ -424,8 +414,6 @@ fn bfs_parallel(
                                 &in_files,
                                 &out_files,
                                 &cloned_action,
-                                actions_store_clone,
-                                credentials_store_clone,
                                 cache_to_update_clone,
                             )
                             .await;
@@ -441,8 +429,6 @@ fn bfs_parallel(
                     let semaphore_clone = Arc::clone(&semaphore);
                     let running_tasks_clone = Arc::clone(&running_tasks);
                     let emakefile_clone = Arc::clone(&emakefile);
-                    let actions_store_clone = Arc::clone(&actions_store);
-                    let credentials_store_clone = Arc::clone(&credentials_store);
                     let visited_clone = Arc::clone(&visited);
                     let cache_to_update_clone = Arc::clone(&cache_to_update);
                     let silent_clone = silent.clone();
@@ -453,8 +439,6 @@ fn bfs_parallel(
                         semaphore_clone,
                         running_tasks_clone,
                         emakefile_clone,
-                        actions_store_clone,
-                        credentials_store_clone,
                         visited_clone,
                         silent_clone,
                         cwd.clone(),
@@ -474,8 +458,6 @@ pub async fn run_target(
     target_id: &String,
     graph: graph::Graph,
     emakefile: emake::Emakefile,
-    actions_store: ActionsStore,
-    credentials_store: CredentialsStore,
     silent: &bool,
     cwd: &String,
 ) {
@@ -487,16 +469,10 @@ pub async fn run_target(
     let running_tasks = Arc::new(RwLock::new(HashMap::new()));
     let running_tasks_clone = Arc::clone(&running_tasks);
     let memakefile = Arc::new(RwLock::new(emakefile));
-    let mactions_store = Arc::new(RwLock::new(actions_store));
-    let mcredentials_store = Arc::new(RwLock::new(credentials_store));
     let visited = Arc::new(RwLock::new(HashSet::new()));
     let cache_to_update = Arc::new(RwLock::new(Vec::new()));
-    // let cache_to_update = Arc::new(RwLock::new(HashMap::new()));
     let read_cache_to_update = cache_to_update.clone();
-    // let write_cache_to_update = cache_to_update.clone();
     let silent_clone = silent.clone();
-    // let outfiles = Arc::new(RwLock::new(Vec::new()));
-    // let read_outfiles: Arc<RwLock<Vec<String>>> = outfiles.clone();
 
     create_dir(cwd, WORKING_DIR).await;
     create_dir(cwd, CACHE_DIR).await;
@@ -507,8 +483,6 @@ pub async fn run_target(
         semaphore,
         running_tasks_clone,
         memakefile,
-        mactions_store,
-        mcredentials_store,
         visited,
         silent_clone,
         cwd.clone(),

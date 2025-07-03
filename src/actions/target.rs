@@ -1,9 +1,9 @@
 use serde_yml::Value;
 use std::{
-    collections::HashMap, future::Future, path::PathBuf, pin::Pin
+    collections::{HashMap, HashSet}, future::Future, path::{Path, PathBuf}, pin::Pin
 };
 
-use crate::{commands::build, console::log};
+use crate::{commands::build, console::log, emake, graph::{self, Node}};
 
 use super::Action;
 pub static ID: &str = "target";
@@ -11,7 +11,26 @@ pub static ID: &str = "target";
 pub struct Target;
 
 impl Action for Target {
-    fn action<'a>(
+    fn generate<'a>(
+        &'a self,
+        cwd: &'a Path,
+        args: &'a Value,
+        emakefile: &mut emake::Emakefile,
+        graph: &'a mut graph::Graph,
+        visited: &'a mut HashSet<String>,
+    ) -> Option<Node> {
+        // let target_name = String::from(args.as_str().unwrap());
+        // Some(create_target_node2(
+        //     cwd,
+        //     emakefile,
+        //     &target_name,
+        //     graph,
+        //     visited,
+        // ))
+        None
+    }
+
+    fn run<'a>(
         &'a self,
         cwd: &'a str,
         emakefile_cwd: &'a str,
@@ -24,7 +43,7 @@ impl Action for Target {
     ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
         Box::pin(async move {
             let target = args.as_str().unwrap_or("").to_string();
-            
+
             let mut real_target = target.clone();
             if !target.starts_with('/') {
                 let emakefile_absolute_path = PathBuf::from(emakefile_cwd);

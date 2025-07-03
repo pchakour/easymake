@@ -27,8 +27,8 @@ struct InFile{
 }
 
 #[derive(Debug, Clone)]
-struct Node {
-    id: String,
+pub struct Node {
+    pub id: String,
     in_neighbors: Vec<String>,
     out_neighbors: Vec<String>,
     action: Option<Action>,
@@ -39,6 +39,6 @@ struct Node {
 
 #[derive(Debug)]
 pub struct Graph {
-    nodes: HashMap<String, Node>,
-    root: String,
+    pub nodes: HashMap<String, Node>,
+    pub root: String,
 }

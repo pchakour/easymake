@@ -1,9 +1,9 @@
 use serde_yml::Value;
 use std::{
-    collections::HashMap, future::Future, io::{BufRead, BufReader}, pin::Pin, process::{Command, Stdio}, sync::{Arc, Mutex}
+    collections::{HashMap, HashSet}, future::Future, io::{BufRead, BufReader}, path::Path, pin::Pin, process::{Command, Stdio}, sync::{Arc, Mutex}
 };
 
-use crate::{console::log, emake};
+use crate::{console::log, emake, graph::{self, Node}};
 
 use super::Action;
 pub static ID: &str = "cmd";
@@ -11,7 +11,18 @@ pub static ID: &str = "cmd";
 pub struct Cmd;
 
 impl Action for Cmd {
-    fn action<'a>(
+    fn generate<'a>(
+        &'a self,
+        cwd: &'a Path,
+        args: &'a Value,
+        emakefile: &mut emake::Emakefile,
+        graph: &'a mut graph::Graph,
+        visited: &'a mut HashSet<String>,
+    ) -> Option<Node> {
+            None
+    }
+
+    fn run<'a>(
         &'a self,
         cwd: &'a str,
         emakefile_cwd: &'a str,

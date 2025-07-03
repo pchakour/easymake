@@ -9,7 +9,7 @@ pub type TargetEntry = HashMap<String, Value>;
 pub type CredentialEntry = HashMap<String, Value>;
 pub type VariableEntry = String;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct Emakefile {
     pub path: Option<String>,
     pub credentials: Option<HashMap<String, CredentialEntry>>,
