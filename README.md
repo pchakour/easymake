@@ -36,7 +36,8 @@ by starting your path with "//", emake will considered that the location of your
 
 ## TODO
 
-- Generate the global graph to determine the previous step to do for a target
+- On clean remove all outfiles ?
+- Add the ability to clean a specific target
 - Add public and private keyword for credentials, variables and targets
 - Add error management
-- If I depend on a file that is already in the in files of a previous target, we need to add in the file the target in front of the date
+- Global code refactoring to do something readable

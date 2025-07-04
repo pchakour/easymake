@@ -12,6 +12,7 @@ pub mod analysor;
 struct Action {
     plugin_id: String,
     args: Value,
+    checksum: Option<String>,
 }
 
 impl Display for Action {

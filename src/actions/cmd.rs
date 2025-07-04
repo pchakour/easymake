@@ -32,7 +32,7 @@ impl Action for Cmd {
         out_files: &'a Vec<String>,
         _working_dir: &'a String,
         maybe_replacements: Option<&'a HashMap<String, String>>,
-    ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>> {
         Box::pin(async move {
             // println!("Run command {:?}", args);
             let mut command = args.as_str().unwrap_or("").to_string();
@@ -125,7 +125,10 @@ impl Action for Cmd {
     
             if !status.success() {
                 log::error!("{}", stderr_buffer.lock().unwrap());
+                return true;
             }
+
+            return false;
         })
     }
 

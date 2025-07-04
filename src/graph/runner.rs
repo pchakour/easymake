@@ -1,50 +1,58 @@
 use crate::console::log;
-use crate::credentials::{self, CredentialsStore};
 use crate::emake::loader::{Target, TargetType};
 use crate::graph::InFile;
-use crate::{emake, get_mutex_for_id, graph, ACTIONS_STORE, CREDENTIALS_STORE};
-use crate::actions::ActionsStore;
+use crate::{credentials, emake, get_mutex_for_id, graph, utils, ACTIONS_STORE, CREDENTIALS_STORE};
+use reqwest::Client;
 use std::fs::File;
-use std::io::{copy, BufWriter};
-use std::process;
+use std::io::{copy, BufWriter, Read};
+use std::path::{Path, PathBuf};
+use std::process::ExitStatus;
 use std::{
     collections::{HashMap, HashSet},
     future::Future,
     sync::Arc,
 };
-use reqwest::Client;
+use std::{os, process};
 use tokio::{
     fs,
     sync::{RwLock, Semaphore},
     task::{self, JoinHandle},
 };
 use url::Url;
-use std::path::PathBuf;
-
 
 const CACHE_DIR: &str = ".emake/cache";
 const WORKING_DIR: &str = ".emake/workspace";
+const OUT_DIR: &str = ".emake/out";
 
 async fn get_cache_dir_path(cwd: &String, is_absolute: bool) -> String {
     get_dir_path(cwd, CACHE_DIR, is_absolute).await
 }
 
-async fn get_working_dir_path(cwd: &String, is_absolute: bool) -> String {
+pub async fn get_working_dir_path(cwd: &String, is_absolute: bool) -> String {
     get_dir_path(cwd, WORKING_DIR, is_absolute).await
+}
+
+pub async fn get_out_dir_path(cwd: &String, is_absolute: bool) -> String {
+    get_dir_path(cwd, OUT_DIR, is_absolute).await
 }
 
 async fn get_dir_path(cwd: &String, dir: &str, is_absolute: bool) -> String {
     let relative_path = PathBuf::from(cwd.clone() + "/" + dir);
 
-    if is_absolute {
-        return String::from(std::fs::canonicalize(&relative_path).unwrap().to_str().unwrap());
+    if !is_absolute {
+        return String::from(
+            std::fs::canonicalize(&relative_path)
+                .unwrap()
+                .to_str()
+                .unwrap(),
+        );
     }
 
     String::from(relative_path.to_str().unwrap())
 }
 
 async fn create_dir(cwd: &String, dir: &str) {
-    let cache_dir = get_dir_path(cwd, dir, false).await;
+    let cache_dir = get_dir_path(cwd, dir, true).await;
     let path = std::path::Path::new(&cache_dir);
     if let Ok(cache_file_dir_exists) = fs::try_exists(&path).await {
         if !cache_file_dir_exists {
@@ -61,7 +69,11 @@ fn get_absolute_file_path(cwd: &String, file: &String) -> std::path::PathBuf {
 }
 
 async fn get_file_cache(cwd: &String, file_absolute_path: &String) -> std::path::PathBuf {
-    let cache_path = format!("{}/{}/time", get_cache_dir_path(cwd, false).await, file_absolute_path);
+    let cache_path = format!(
+        "{}/{}/time",
+        get_cache_dir_path(cwd, false).await,
+        file_absolute_path
+    );
     let path = std::path::Path::new(&cache_path);
     path.to_path_buf()
 }
@@ -72,7 +84,8 @@ async fn get_file_modification_time(file_absolute_path: &String) -> Option<Strin
             if filepath_exists {
                 match fs::metadata(&file_absolute_path).await {
                     Ok(metadata) => {
-                        let current_time = format!("{:?}", metadata.modified().unwrap());
+                        let mut current_time = format!("{:?}", metadata.modified().unwrap());
+                        current_time = current_time.replace(" ", "");
                         return Some(current_time);
                     }
                     Err(error) => {
@@ -80,7 +93,7 @@ async fn get_file_modification_time(file_absolute_path: &String) -> Option<Strin
                     }
                 }
             }
-        },
+        }
         Err(error) => {
             panic!("{}", error);
         }
@@ -89,16 +102,17 @@ async fn get_file_modification_time(file_absolute_path: &String) -> Option<Strin
     None
 }
 
-async fn write_cache(cwd: &String, cache_to_update: Arc<RwLock<Vec<(String, String)>>>,) {
+async fn write_cache(cwd: &String, cache_to_update: Arc<RwLock<Vec<(String, String)>>>) {
     let read_cache_to_update = cache_to_update.read().await;
     for (file_absolute_path, action_id) in read_cache_to_update.iter() {
         if let Ok(file_exists) = fs::try_exists(&file_absolute_path).await {
             if file_exists {
                 if is_file_changed(cwd, file_absolute_path, action_id).await {
                     let maybe_current_time = get_file_modification_time(&file_absolute_path).await;
-    
+
                     if let Some(current_time) = maybe_current_time {
-                        write_file_in_cache(cwd, file_absolute_path, action_id, &current_time).await;
+                        write_file_in_cache(cwd, file_absolute_path, action_id, &current_time)
+                            .await;
                     }
                 }
             } else {
@@ -109,7 +123,12 @@ async fn write_cache(cwd: &String, cache_to_update: Arc<RwLock<Vec<(String, Stri
     }
 }
 
-async fn write_file_in_cache(cwd: &String, file_absolute_path: &String, action_id: &String, modification_date: &String) {
+async fn write_file_in_cache(
+    cwd: &String,
+    file_absolute_path: &String,
+    action_id: &String,
+    modification_date: &String,
+) {
     let cache_file_path = get_file_cache(cwd, &file_absolute_path).await;
     let cache_file_dir = cache_file_path.parent().unwrap();
     if let Ok(cache_file_dir_exists) = fs::try_exists(&cache_file_dir).await {
@@ -119,8 +138,99 @@ async fn write_file_in_cache(cwd: &String, file_absolute_path: &String, action_i
         }
 
         // println!("Write file cache {:?}", cache_file_path);
-        todo!("TODO each line get action_id");
-        fs::write(&cache_file_path, &modification_date).await.unwrap();
+
+        // Check if the line already exist
+        let mut action_line = action_id.clone();
+        action_line.push_str(" ");
+        action_line.push_str(&modification_date);
+
+        if let Ok(cache_file_exists) = fs::try_exists(&cache_file_path).await {
+            if cache_file_exists {
+                let file_content = fs::read_to_string(&cache_file_path).await.unwrap();
+                let mut lines: Vec<&str> = file_content.split("\n").collect();
+                let mut maybe_line_action_id_index = None;
+
+                for (line_index, line) in lines.iter().enumerate() {
+                    let details: Vec<&str> = line.split(" ").collect();
+                    let line_action_id = details[0];
+
+                    if line_action_id == action_id {
+                        maybe_line_action_id_index = Some(line_index);
+                        break;
+                    }
+                }
+
+                if let Some(line_action_id_index) = maybe_line_action_id_index {
+                    lines[line_action_id_index] = action_line.as_str();
+                } else {
+                    lines.push(&action_line.as_str());
+                }
+
+                fs::write(&cache_file_path, &lines.join("\n"))
+                    .await
+                    .unwrap();
+                return ();
+            }
+        }
+
+        fs::write(&cache_file_path, &action_line).await.unwrap();
+    }
+}
+
+async fn get_cache_action_checksum(action_id: &String, cwd: &String) -> Option<String> {
+    let cache_dir = get_cache_dir_path(cwd, true).await;
+    let checksum_cache_path = Path::new(&cache_dir).join("checksum");
+
+    if let Ok(checksum_cache_exists) = fs::try_exists(&checksum_cache_path).await {
+        if checksum_cache_exists {
+            if let Ok(cache_content) = fs::read_to_string(&checksum_cache_path).await {
+                let lines: Vec<&str> = cache_content.split("\n").collect();
+                for line in lines {
+                    let details: Vec<&str> = line.split(" ").collect();
+                    let line_action_id = details[0];
+                    if action_id == line_action_id {
+                        let line_checksum = details[1];
+                        return Some(String::from(line_checksum));
+                    }
+                }
+            }
+        }
+    }
+
+    None
+}
+
+async fn write_cache_action_checksum(action_id: &String, checksum: &String, cwd: &String) {
+    let cache_dir = get_cache_dir_path(cwd, true).await;
+    let checksum_cache_path = Path::new(&cache_dir).join("checksum");
+
+    if let Ok(checksum_cache_exists) = fs::try_exists(&checksum_cache_path).await {
+        if !checksum_cache_exists {
+            std::fs::File::create(&checksum_cache_path).unwrap();
+        }
+    }
+
+    if let Ok(cache_content) = fs::read_to_string(&checksum_cache_path).await {
+        let mut maybe_action_line_index = None;
+        let mut lines: Vec<&str> = cache_content.split("\n").collect();
+        for (line_index, line) in lines.iter().enumerate() {
+            let details: Vec<&str> = line.split(" ").collect();
+            let line_action_id = details[0];
+            if action_id == line_action_id {
+                maybe_action_line_index = Some(line_index);
+                break;
+            }
+        }
+
+        let formated_line = format!("{} {}", action_id, checksum);
+        if let Some(action_line_index) = maybe_action_line_index {
+            lines[action_line_index] = formated_line.as_str();
+        } else {
+            lines.push(formated_line.as_str());
+        }
+
+        let content = lines.join("\n");
+        fs::write(&checksum_cache_path, &content).await.unwrap();
     }
 }
 
@@ -132,11 +242,20 @@ async fn is_file_changed(cwd: &String, file: &String, action_id: &String) -> boo
         let cache_file = get_file_cache(cwd, &file_absolute_path).await;
         if let Ok(cache_file_exists) = fs::try_exists(&cache_file).await {
             if cache_file_exists {
-                let previous_time =
-                    fs::read_to_string(&cache_file).await.unwrap();
-                    todo!("TODO each line get action_id");
-                if previous_time == modification_date {
-                    file_changed = false;
+                let file_content = fs::read_to_string(&cache_file).await.unwrap();
+                let lines: Vec<&str> = file_content.split("\n").collect();
+
+                for line in lines {
+                    let details: Vec<&str> = line.split(" ").collect();
+                    let line_action_id = details[0];
+
+                    if line_action_id == action_id {
+                        let previous_time = String::from(details[1]);
+                        if previous_time == modification_date {
+                            file_changed = false;
+                        }
+                        break;
+                    }
                 }
             }
         }
@@ -157,37 +276,37 @@ async fn download_file(
     let mut maybe_credentials: Option<credentials::PlainCredentials> = None;
     if let Some(credentials_key) = maybe_credentials_key {
         let result_credentials_config = emake::loader::get_target_on_path(
-            &PathBuf::from(cwd), 
-            credentials_key, 
+            &PathBuf::from(cwd),
+            credentials_key,
             emakefile_cwd,
             Some(TargetType::Credentials),
         );
 
         match result_credentials_config {
-            Ok(credentials_config) => {
-                match credentials_config {
-                    Target::CredentialEntry(credentials_config) => {
-                        if !credentials_config.contains_key("type") {
-                            log::error!("The credential {} must contains a type", credentials_key);
-                            process::exit(1);
-                        }
-                        let credentials_type = String::from(credentials_config.get("type").unwrap().as_str().unwrap());
-                        let maybe_credentials_plugin = CREDENTIALS_STORE.get(&credentials_type);
-                        if let Some(credentials_plugin) = maybe_credentials_plugin {
-                            maybe_credentials = Some(credentials_plugin.extract(cwd, &credentials_config));
-                        } else {
-                            log::error!("The credential type {} does not exist", credentials_type);
-                            process::exit(1);
-                        }
-                    },
-                    Target::TargetEntry(_) => {
-                        log::error!("The specified path {} is not a credential", credentials_key);
-                        std::process::exit(1);
-                    },
-                    Target::VariableEntry(_) => {
-                        log::error!("The specified path {} is not a credential", credentials_key);
-                        std::process::exit(1);
+            Ok(credentials_config) => match credentials_config {
+                Target::CredentialEntry(credentials_config) => {
+                    if !credentials_config.contains_key("type") {
+                        log::error!("The credential {} must contains a type", credentials_key);
+                        process::exit(1);
                     }
+                    let credentials_type =
+                        String::from(credentials_config.get("type").unwrap().as_str().unwrap());
+                    let maybe_credentials_plugin = CREDENTIALS_STORE.get(&credentials_type);
+                    if let Some(credentials_plugin) = maybe_credentials_plugin {
+                        maybe_credentials =
+                            Some(credentials_plugin.extract(cwd, &credentials_config));
+                    } else {
+                        log::error!("The credential type {} does not exist", credentials_type);
+                        process::exit(1);
+                    }
+                }
+                Target::TargetEntry(_) => {
+                    log::error!("The specified path {} is not a credential", credentials_key);
+                    std::process::exit(1);
+                }
+                Target::VariableEntry(_) => {
+                    log::error!("The specified path {} is not a credential", credentials_key);
+                    std::process::exit(1);
                 }
             },
             Err(error) => {
@@ -251,31 +370,34 @@ async fn run_action(
 ) {
     log::info!("{}Running action {:?}", log::INDENT, action);
     let maybe_plugin = ACTIONS_STORE.get(&action.plugin_id);
-    
+
     if let Some(plugin) = maybe_plugin {
         let mut need_to_run_action = in_files.len() == 0 && out_files.len() == 0;
         let mut real_in_files = Vec::new();
         let mut real_out_files = Vec::new();
         let working_dir = get_working_dir_path(cwd, true).await;
+        let out_dir = get_out_dir_path(cwd, true).await;
         let default_replacements = HashMap::from([
             (String::from("EMAKE_WORKING_DIR"), working_dir.to_owned()),
             (String::from("EMAKE_CWD_DIR"), cwd.to_owned()),
+            (String::from("EMAKE_OUT_DIR"), out_dir.to_owned()),
         ]);
 
         // Get in files modification date
         for in_file in in_files {
             let compiled_in_file_string = emake::compiler::compile(
-                cwd, 
-                &in_file.file, 
-                emakefile_cwd, 
-                Some(&default_replacements)
+                cwd,
+                &in_file.file,
+                emakefile_cwd,
+                Some(&default_replacements),
             );
             let mut files = Vec::from([compiled_in_file_string.clone()]);
 
-            let parsed_compiled_files_result: Result<Vec<String>, _> = serde_yml::from_str(&compiled_in_file_string);
+            let parsed_compiled_files_result: Result<Vec<String>, _> =
+                serde_yml::from_str(&compiled_in_file_string);
             match parsed_compiled_files_result {
                 Ok(parsed_compiled_files) => files = parsed_compiled_files,
-                Err(_) => ()
+                Err(_) => (),
             }
 
             let mut files_to_replace = HashMap::new();
@@ -285,8 +407,16 @@ async fn run_action(
                     let mut output = PathBuf::from(get_working_dir_path(cwd, true).await);
                     output.push(&filename);
                     let output_string = String::from(output.to_str().unwrap());
-                    if is_file_changed(cwd, &output_string).await {
-                        download_file(file, &output_string, cwd, emakefile_cwd, &in_file.credentials).await.unwrap();
+                    if is_file_changed(cwd, &output_string, action_id).await {
+                        download_file(
+                            file,
+                            &output_string,
+                            cwd,
+                            emakefile_cwd,
+                            &in_file.credentials,
+                        )
+                        .await
+                        .unwrap();
                     }
                     files_to_replace.insert(output_string, index);
                 }
@@ -300,50 +430,117 @@ async fn run_action(
         }
 
         for out_file in out_files {
-            let compiled_out_file_string = emake::compiler::compile(cwd, 
-                out_file, 
-                emakefile_cwd, 
-                Some(&default_replacements)
-            );
+            let compiled_out_file_string =
+                emake::compiler::compile(cwd, out_file, emakefile_cwd, Some(&default_replacements));
             let mut files = Vec::from([compiled_out_file_string.clone()]);
 
-            let parsed_compiled_files_result: Result<Vec<String>, _> = serde_yml::from_str(&compiled_out_file_string);
+            let parsed_compiled_files_result: Result<Vec<String>, _> =
+                serde_yml::from_str(&compiled_out_file_string);
             match parsed_compiled_files_result {
                 Ok(parsed_compiled_files) => files = parsed_compiled_files,
-                Err(_) => ()
+                Err(_) => (),
             }
 
             real_out_files.extend(files);
         }
 
         let mut real_files = Vec::new();
-        real_files.extend(&real_in_files);       
+        real_files.extend(&real_in_files);
         real_files.extend(&real_out_files);
 
-        for file in real_files {
-            let file_absolute_path = String::from(get_absolute_file_path(cwd, &file).to_str().unwrap());
-            cache_to_update.write().await.push((file_absolute_path, action_id.clone()));
-            let file_changed = is_file_changed(cwd, &file).await;
+        for file in &real_files {
+            let file_changed = is_file_changed(cwd, *file, action_id).await;
             if file_changed {
+                log::info!("File change {}", *file);
                 need_to_run_action = true;
             }
         }
 
+        if let Some(checksum_command) = &action.checksum {
+            let mut maybe_checksum: Option<String> = None;
+            let (status, stdout, stderr) = utils::run_command(
+                checksum_command,
+                Path::new(cwd),
+                Path::new(emakefile_cwd),
+                Some(&default_replacements),
+            );
+
+            if ExitStatus::success(&status) {
+                maybe_checksum = Some(stdout);
+            } else {
+                log::warning!("Error when computing checksum of action {action_id}: {stderr}");
+            }
+
+            if let Some(checksum) = maybe_checksum {
+                if let Some(current_action_checksum) =
+                    get_cache_action_checksum(action_id, cwd).await
+                {
+                    if checksum.trim().to_string() != current_action_checksum {
+                        log::info!(
+                            "Checksum change from {} to {}",
+                            current_action_checksum,
+                            checksum.trim().to_string()
+                        );
+                        need_to_run_action = true;
+                    }
+                }
+            }
+        }
+
         if need_to_run_action {
-            plugin.run(
-                cwd,
-                emakefile_cwd,
-                silent,
-                &action.args,
-                &real_in_files,
-                &real_out_files,
-                &working_dir,
-                Some(&default_replacements)
-            ).await;
-            log::info!("{}Action {:?} done !", log::INDENT, action);
+            let has_error = plugin
+                .run(
+                    cwd,
+                    emakefile_cwd,
+                    silent,
+                    &action.args,
+                    &real_in_files,
+                    &real_out_files,
+                    &working_dir,
+                    Some(&default_replacements),
+                )
+                .await;
+
+            if !has_error {
+                for file in &real_files {
+                    let file_absolute_path =
+                        String::from(get_absolute_file_path(cwd, *file).to_str().unwrap());
+                    cache_to_update
+                        .write()
+                        .await
+                        .push((file_absolute_path, action_id.clone()));
+                }
+
+                // Compute checksum
+                if let Some(checksum_command) = &action.checksum {
+                    let mut maybe_checksum: Option<String> = None;
+                    let (status, stdout, stderr) = utils::run_command(
+                        checksum_command,
+                        Path::new(cwd),
+                        Path::new(emakefile_cwd),
+                        Some(&default_replacements),
+                    );
+
+                    if ExitStatus::success(&status) {
+                        maybe_checksum = Some(stdout);
+                    } else {
+                        log::warning!(
+                            "Error when computing checksum of action {action_id}: {stderr}"
+                        );
+                    }
+
+                    if let Some(checksum) = maybe_checksum {
+                        write_cache_action_checksum(action_id, &checksum.trim().to_string(), cwd)
+                            .await
+                    }
+                }
+                log::info!("{}Action {:?} done successfully !", log::INDENT, action);
+            }
         } else {
             log::info!(
-                "{}No need to run action {:?} because no input/output files changed", log::INDENT, action
+                "{}No need to run action {:?} because no input/output files changed",
+                log::INDENT,
+                action
             );
         }
     }
@@ -376,11 +573,17 @@ fn bfs_parallel(
 
             if let Some(node) = maybe_node {
                 // Wait for all incomming actions
-                for in_neighbor in &node.in_neighbors {
-                    if let Some(t) = running_tasks.write().await.get_mut(in_neighbor) {
+                for in_neighbor_id in &node.in_neighbors {
+                    let read_graph = graph.read().await;
+                    let neighbor = read_graph.nodes.get(in_neighbor_id).unwrap();
+                    if let Some(t) = running_tasks.write().await.get_mut(in_neighbor_id) {
+                        println!(
+                            "Node {} Wait IN NEIG {:?}",
+                            node.id, neighbor
+                        );
                         t.await.unwrap();
                     }
-                    running_tasks.write().await.remove(in_neighbor);
+                    running_tasks.write().await.remove(in_neighbor_id);
                 }
 
                 // Get all output neighbors
@@ -402,7 +605,13 @@ fn bfs_parallel(
                         let cloned_cwd = cwd.clone();
                         current_step += 1;
                         action_number += 1;
-                        log::step!(current_step, total_steps, "Running action {} of target {}", action_number, node_id);
+                        log::step!(
+                            current_step,
+                            total_steps,
+                            "Running action {} of target {}",
+                            action_number,
+                            node_id
+                        );
                         let r = task::spawn(async move {
                             let m = get_mutex_for_id(&action_id).await;
                             let _guard = m.lock().await;
@@ -476,6 +685,7 @@ pub async fn run_target(
 
     create_dir(cwd, WORKING_DIR).await;
     create_dir(cwd, CACHE_DIR).await;
+    create_dir(cwd, OUT_DIR).await;
 
     bfs_parallel(
         mgraph,

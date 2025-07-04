@@ -4,6 +4,7 @@ mod actions;
 mod console;
 mod commands;
 mod credentials;
+mod utils;
 
 use std::{env, fs, path::Path, sync::Arc};
 use clap::{arg, Command, Parser};

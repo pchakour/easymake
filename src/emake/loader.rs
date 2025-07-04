@@ -24,7 +24,7 @@ pub enum Target {
 }
 
 fn read_file_content(path: &str) -> String {
-    log::info!("Loading file {:?}", path);
+    // log::info!("Loading file {:?}", path);
     let content = std::fs::read_to_string(path).unwrap();
     return content;
 }
@@ -168,26 +168,14 @@ pub fn get_target(cwd: &Path, target: &String, emakefile: &mut emake::Emakefile)
     // Check if the target exists in the current Emakefile
     let emakefile_current_path = emakefile.path.to_owned().unwrap();
     let target_path_info = extract_info_from_path(target, cwd, &emakefile_current_path);
+    println!("TAEREE {:?} {} {:?}", cwd, target, emakefile.path);
+
     *emakefile = emake::loader::load_file(&target_path_info.emakefile_path.to_str().unwrap());
 
     if emakefile.targets.contains_key(&target_path_info.target_name) {
         return emakefile.targets.get(&target_path_info.target_name).unwrap().to_owned();
     } else {
         log::error!("No target {} found", target);
-        std::process::exit(1);
-    }
-}
-
-pub fn get_target2(cwd: &Path, target_absolute_path: &String, emakefile: &mut emake::Emakefile) -> Vec<TargetEntry> {
-    // Check if the target exists in the current Emakefile
-    let target_path_info = extract_info_from_path2(target_absolute_path, cwd);
-    println!("TEST {:?}", target_path_info);
-    *emakefile = emake::loader::load_file(&target_path_info.emakefile_path.to_str().unwrap());
-
-    if emakefile.targets.contains_key(&target_path_info.target_name) {
-        return emakefile.targets.get(&target_path_info.target_name).unwrap().to_owned();
-    } else {
-        log::error!("No target {} found", target_absolute_path);
         std::process::exit(1);
     }
 }

@@ -27,7 +27,7 @@ pub trait Action: Send + Sync {
         out_file: &'a Vec<String>,
         working_dir: &'a String,
         default_replacments: Option<&'a HashMap<String, String>>,
-    ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>>;
+    ) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>>;
     fn clone_box(&self) -> Box<dyn Action + Send + Sync>;
 }
 
