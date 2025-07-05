@@ -188,11 +188,10 @@ fn create_target_node(
     graph: &mut graph::Graph,
     visited: &mut HashSet<String>,
 ) -> graph::Node {
-    println!("Generate target target_name={} cwd={} emakefile_path={}", target_name, cwd.to_str().unwrap(), emakefile.path.clone().unwrap());
+    // println!("Generate target target_name={} cwd={} emakefile_path={}", target_name, cwd.to_str().unwrap(), emakefile.path.clone().unwrap());
     
     let emakefile_target = emake::loader::get_target(cwd, target_name, emakefile);
     let target_path = get_absolute_target_path(target_name, &emakefile.path.as_ref().unwrap().to_string(), cwd);
-    println!("Computed target path {}", target_path);
     let mut out_neighbors: Vec<String> = Vec::new();
     let in_neighbors: Vec<String> = Vec::new(); 
 
@@ -291,7 +290,12 @@ pub fn get_absolute_target_path(path: &String, emakefile_current_path: &String, 
         let mut target_key_parts: Vec<&str> = target_key.split(':').collect();
         let target_key = target_key_parts.pop().unwrap();
         let parent_target_path = (path_separator + Path::new(emakefile_current_path).parent().unwrap().to_str().unwrap()).replace(cwd.to_str().unwrap(), "");
-        let target_path = format!("{}/{}targets:{}", &parent_target_path, path_parts.join("/"), target_key);
+        let target_path ;
+        if path_parts.len() > 0 {
+            target_path = format!("{}/{}/targets:{}", &parent_target_path, path_parts.join("/"), target_key);
+        } else {
+            target_path = format!("{}/targets:{}", &parent_target_path, target_key);
+        }
         target_path
     }
 }

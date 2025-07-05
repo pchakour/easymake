@@ -79,37 +79,6 @@ fn extract_info_from_path(path: &String, cwd: &Path, emakefile_current_path: &St
     std::process::exit(1);
 }
 
-fn extract_info_from_path2(path: &String, cwd: &Path) -> PathInfo {
-    println!("extract_info_from_path2 {} {:?}", path, cwd);
-    let tmp = path.replace("//", (String::from(cwd.to_str().unwrap()) + "/").as_str());
-    let mut parts: Vec<&str> = tmp.split('/').collect();
-    let target_parts: Vec<&str> = parts.pop().unwrap().split(':').collect();
-
-    let target_type: TargetType;
-    let target_name: String;
-    
-    if target_parts.len() == 2 {
-        target_type = target_type_str_to_enum(target_parts[0]);
-        target_name = String::from(target_parts[1]);
-    } else {
-        target_type = TargetType::Targets;
-        target_name = String::from(target_parts[0]);
-    }
-
-    let emakefile_path = PathBuf::from(parts.join("/")).join("Emakefile");
-
-    return PathInfo {
-        emakefile_path,
-        target_type,
-        target_name
-    }
-}
-
-pub fn get_target_name(target_path: &String) -> String {
-    let mut parts: Vec<&str> = target_path.split(":").collect();
-    parts.pop().unwrap().to_string()
-}
-
 pub fn get_target_on_path(
     cwd: &Path,
     credentials_path: &String,
@@ -168,7 +137,6 @@ pub fn get_target(cwd: &Path, target: &String, emakefile: &mut emake::Emakefile)
     // Check if the target exists in the current Emakefile
     let emakefile_current_path = emakefile.path.to_owned().unwrap();
     let target_path_info = extract_info_from_path(target, cwd, &emakefile_current_path);
-    println!("TAEREE {:?} {} {:?}", cwd, target, emakefile.path);
 
     *emakefile = emake::loader::load_file(&target_path_info.emakefile_path.to_str().unwrap());
 

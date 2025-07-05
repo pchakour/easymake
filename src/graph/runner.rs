@@ -62,15 +62,17 @@ async fn create_dir(cwd: &String, dir: &str) {
 }
 
 fn get_absolute_file_path(cwd: &String, file: &String) -> std::path::PathBuf {
-    let absolute_path = cwd.clone();
-    let mut path = std::path::PathBuf::from(&absolute_path);
-    path.push(file);
+    let mut path = std::path::PathBuf::from(&file);
+    if !path.is_absolute() {
+        path = std::path::PathBuf::from(cwd);
+        path.push(file);
+    }
     path
 }
 
 async fn get_file_cache(cwd: &String, file_absolute_path: &String) -> std::path::PathBuf {
     let cache_path = format!(
-        "{}/{}/time",
+        "{}{}/time",
         get_cache_dir_path(cwd, false).await,
         file_absolute_path
     );
@@ -574,13 +576,7 @@ fn bfs_parallel(
             if let Some(node) = maybe_node {
                 // Wait for all incomming actions
                 for in_neighbor_id in &node.in_neighbors {
-                    let read_graph = graph.read().await;
-                    let neighbor = read_graph.nodes.get(in_neighbor_id).unwrap();
                     if let Some(t) = running_tasks.write().await.get_mut(in_neighbor_id) {
-                        println!(
-                            "Node {} Wait IN NEIG {:?}",
-                            node.id, neighbor
-                        );
                         t.await.unwrap();
                     }
                     running_tasks.write().await.remove(in_neighbor_id);
@@ -674,7 +670,7 @@ pub async fn run_target(
     log::info!("Total steps to run {total_steps} for target {target_id}\n");
 
     let mgraph = Arc::new(RwLock::new(graph));
-    let semaphore = Arc::new(Semaphore::new(15));
+    let semaphore = Arc::new(Semaphore::new(20));
     let running_tasks = Arc::new(RwLock::new(HashMap::new()));
     let running_tasks_clone = Arc::clone(&running_tasks);
     let memakefile = Arc::new(RwLock::new(emakefile));

@@ -124,6 +124,7 @@ impl Action for Cmd {
             let status = output.wait().expect("Failed to wait on child");
     
             if !status.success() {
+                log::error!("Command return an error status {}", status.code().unwrap());
                 log::error!("{}", stderr_buffer.lock().unwrap());
                 return true;
             }

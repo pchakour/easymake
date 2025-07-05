@@ -17,7 +17,6 @@ pub async fn run(target: &String, silent: &bool, cwd: &Path, find_root: bool) {
 
     if let Some(root_target) = maybe_root_target {
         let graph_structure = graph::generator::generate(cwd, &mut emakefile, &root_target);
-        println!("ROOT TARGET {} {:?}", root_target, graph_structure);
         graph::runner::run_target(
             &root_target,
             graph_structure,

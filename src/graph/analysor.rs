@@ -1,11 +1,10 @@
-use std::{collections::{HashMap, HashSet}, path::Path};
+use std::{collections::{HashMap}, path::Path};
 
-use crate::{emake::{self, loader::get_target_name}, graph::{self, generator::{extract_then_targets, get_absolute_target_path}}};
+use crate::{emake::{self}, graph::{self, generator::{extract_then_targets, get_absolute_target_path}}};
 
 fn count_steps(graph: &graph::Graph, node: &graph::Node, current_steps_size: usize) -> usize {
     let mut steps_size = current_steps_size;
     for neighbor in &node.out_neighbors {
-        println!("Getting neighbor {}", neighbor);
         let neighbor_node = graph.nodes.get(neighbor).unwrap();
         if let Some(_) = &neighbor_node.action {
             steps_size += 1;
