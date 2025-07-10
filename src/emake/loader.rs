@@ -11,14 +11,14 @@ pub enum TargetType {
 }
 
 #[derive(Debug)]
-struct PathInfo {
-    emakefile_path: PathBuf,
-    target_type: TargetType,
-    target_name: String,
+pub struct PathInfo {
+    pub emakefile_path: PathBuf,
+    pub target_type: TargetType,
+    pub target_name: String,
 }
 
 pub enum Target {
-    TargetEntry(Vec<TargetEntry>),
+    TargetEntry(emake::Target),
     VariableEntry(VariableEntry),
     CredentialEntry(CredentialEntry),
 }
@@ -42,7 +42,7 @@ fn target_type_str_to_enum(target_type: &str) -> TargetType {
     }
 }
 
-fn extract_info_from_path(path: &String, cwd: &Path, emakefile_current_path: &String) -> PathInfo {
+pub fn extract_info_from_path(path: &str, cwd: &str, emakefile_current_path: &str) -> PathInfo {
     let mut target_split: Vec<&str> = path.split('/').collect();
     target_split.retain(|s| !s.is_empty());
     let from_root = path.starts_with("//");
@@ -58,7 +58,7 @@ fn extract_info_from_path(path: &String, cwd: &Path, emakefile_current_path: &St
             target_name = String::from(real_target_split[1]);
         }
 
-        let mut emakefile_path = cwd.join("Emakefile");
+        let mut emakefile_path = Path::new(cwd).join("Emakefile");
         if !from_root {
             emakefile_path = PathBuf::from(emakefile_current_path);
         }
@@ -80,9 +80,9 @@ fn extract_info_from_path(path: &String, cwd: &Path, emakefile_current_path: &St
 }
 
 pub fn get_target_on_path(
-    cwd: &Path,
-    credentials_path: &String,
-    emakefile_current_path: &String,
+    cwd: &str,
+    credentials_path: &str,
+    emakefile_current_path: &str,
     maybe_force_type: Option<TargetType>
 ) -> Result<Target, String> {
     // Check if the target exists in the current Emakefile
@@ -130,21 +130,6 @@ pub fn get_target_on_path(
                 return Err(format!("No variables defined in Emakefile {}. Expected a variable named {}", credentials_path_info.emakefile_path.to_str().unwrap(), credentials_path_info.target_name));
             }
         }
-    }
-}
-
-pub fn get_target(cwd: &Path, target: &String, emakefile: &mut emake::Emakefile) -> Vec<TargetEntry> {
-    // Check if the target exists in the current Emakefile
-    let emakefile_current_path = emakefile.path.to_owned().unwrap();
-    let target_path_info = extract_info_from_path(target, cwd, &emakefile_current_path);
-
-    *emakefile = emake::loader::load_file(&target_path_info.emakefile_path.to_str().unwrap());
-
-    if emakefile.targets.contains_key(&target_path_info.target_name) {
-        return emakefile.targets.get(&target_path_info.target_name).unwrap().to_owned();
-    } else {
-        log::error!("No target {} found", target);
-        std::process::exit(1);
     }
 }
 

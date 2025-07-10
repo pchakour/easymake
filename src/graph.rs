@@ -1,5 +1,6 @@
 use std::{collections::HashMap, fmt::Display};
 
+use serde::{Deserialize, Serialize};
 use serde_yml::Value;
 
 pub mod generator;
@@ -21,10 +22,10 @@ impl Display for Action {
     }
 }
 
-#[derive(Debug, Clone)]
-struct InFile{
-    file: String,
-    credentials: Option<String>,
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InFile {
+    pub file: String,
+    pub credentials: Option<String>,
 }
 
 #[derive(Debug, Clone)]

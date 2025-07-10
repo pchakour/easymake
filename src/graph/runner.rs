@@ -1,284 +1,47 @@
+use crate::actions::{
+    compute_action_footprint, get_registered_action_footprint, register_action_footprint,
+};
 use crate::console::log;
-use crate::emake::loader::{Target, TargetType};
-use crate::graph::InFile;
-use crate::{credentials, emake, get_mutex_for_id, graph, utils, ACTIONS_STORE, CREDENTIALS_STORE};
+use crate::emake::loader::{extract_info_from_path, Target, TargetType};
+use crate::emake::Step;
+use crate::graph::generator::{get_absolute_target_path, to_emakefile_path};
+use crate::utils::get_absolute_file_path;
+use crate::{
+    cache, credentials, emake, get_mutex_for_id, graph, utils, ACTIONS_STORE, CACHE_TO_UPDATE,
+    CREDENTIALS_STORE, GLOBAL_SEMAPHORE, MULTI_PROGRESS,
+};
+use console::style;
+use futures::future::join_all;
+use futures::StreamExt;
+use indicatif::{ProgressBar, ProgressFinish, ProgressStyle};
 use reqwest::Client;
+use std::borrow::Cow;
+use std::error::Error;
 use std::fs::File;
-use std::io::{copy, BufWriter, Read};
+use std::io::BufWriter;
+use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
+use std::process;
 use std::process::ExitStatus;
-use std::{
-    collections::{HashMap, HashSet},
-    future::Future,
-    sync::Arc,
-};
-use std::{os, process};
-use tokio::{
-    fs,
-    sync::{RwLock, Semaphore},
-    task::{self, JoinHandle},
-};
+use std::time::Duration;
+use std::{collections::HashMap, future::Future};
+use tokio::task::JoinHandle;
 use url::Url;
 
-const CACHE_DIR: &str = ".emake/cache";
-const WORKING_DIR: &str = ".emake/workspace";
-const OUT_DIR: &str = ".emake/out";
-
-async fn get_cache_dir_path(cwd: &String, is_absolute: bool) -> String {
-    get_dir_path(cwd, CACHE_DIR, is_absolute).await
-}
-
-pub async fn get_working_dir_path(cwd: &String, is_absolute: bool) -> String {
-    get_dir_path(cwd, WORKING_DIR, is_absolute).await
-}
-
-pub async fn get_out_dir_path(cwd: &String, is_absolute: bool) -> String {
-    get_dir_path(cwd, OUT_DIR, is_absolute).await
-}
-
-async fn get_dir_path(cwd: &String, dir: &str, is_absolute: bool) -> String {
-    let relative_path = PathBuf::from(cwd.clone() + "/" + dir);
-
-    if !is_absolute {
-        return String::from(
-            std::fs::canonicalize(&relative_path)
-                .unwrap()
-                .to_str()
-                .unwrap(),
-        );
-    }
-
-    String::from(relative_path.to_str().unwrap())
-}
-
-async fn create_dir(cwd: &String, dir: &str) {
-    let cache_dir = get_dir_path(cwd, dir, true).await;
-    let path = std::path::Path::new(&cache_dir);
-    if let Ok(cache_file_dir_exists) = fs::try_exists(&path).await {
-        if !cache_file_dir_exists {
-            fs::create_dir_all(&path).await.unwrap();
-        }
-    }
-}
-
-fn get_absolute_file_path(cwd: &String, file: &String) -> std::path::PathBuf {
-    let mut path = std::path::PathBuf::from(&file);
-    if !path.is_absolute() {
-        path = std::path::PathBuf::from(cwd);
-        path.push(file);
-    }
-    path
-}
-
-async fn get_file_cache(cwd: &String, file_absolute_path: &String) -> std::path::PathBuf {
-    let cache_path = format!(
-        "{}{}/time",
-        get_cache_dir_path(cwd, false).await,
-        file_absolute_path
-    );
-    let path = std::path::Path::new(&cache_path);
-    path.to_path_buf()
-}
-
-async fn get_file_modification_time(file_absolute_path: &String) -> Option<String> {
-    match fs::try_exists(&file_absolute_path).await {
-        Ok(filepath_exists) => {
-            if filepath_exists {
-                match fs::metadata(&file_absolute_path).await {
-                    Ok(metadata) => {
-                        let mut current_time = format!("{:?}", metadata.modified().unwrap());
-                        current_time = current_time.replace(" ", "");
-                        return Some(current_time);
-                    }
-                    Err(error) => {
-                        println!("ERROR {}", error);
-                    }
-                }
-            }
-        }
-        Err(error) => {
-            panic!("{}", error);
-        }
-    }
-
-    None
-}
-
-async fn write_cache(cwd: &String, cache_to_update: Arc<RwLock<Vec<(String, String)>>>) {
-    let read_cache_to_update = cache_to_update.read().await;
-    for (file_absolute_path, action_id) in read_cache_to_update.iter() {
-        if let Ok(file_exists) = fs::try_exists(&file_absolute_path).await {
-            if file_exists {
-                if is_file_changed(cwd, file_absolute_path, action_id).await {
-                    let maybe_current_time = get_file_modification_time(&file_absolute_path).await;
-
-                    if let Some(current_time) = maybe_current_time {
-                        write_file_in_cache(cwd, file_absolute_path, action_id, &current_time)
-                            .await;
-                    }
-                }
-            } else {
-                log::error!("You try to cache a file that doesn't exist. Check your input/output, the file is {}", file_absolute_path);
-                process::exit(1);
-            }
-        }
-    }
-}
-
-async fn write_file_in_cache(
-    cwd: &String,
-    file_absolute_path: &String,
-    action_id: &String,
-    modification_date: &String,
-) {
-    let cache_file_path = get_file_cache(cwd, &file_absolute_path).await;
-    let cache_file_dir = cache_file_path.parent().unwrap();
-    if let Ok(cache_file_dir_exists) = fs::try_exists(&cache_file_dir).await {
-        if !cache_file_dir_exists {
-            // println!("Exists dir cache {:?}", cache_file_dir);
-            fs::create_dir_all(&cache_file_dir).await.unwrap();
-        }
-
-        // println!("Write file cache {:?}", cache_file_path);
-
-        // Check if the line already exist
-        let mut action_line = action_id.clone();
-        action_line.push_str(" ");
-        action_line.push_str(&modification_date);
-
-        if let Ok(cache_file_exists) = fs::try_exists(&cache_file_path).await {
-            if cache_file_exists {
-                let file_content = fs::read_to_string(&cache_file_path).await.unwrap();
-                let mut lines: Vec<&str> = file_content.split("\n").collect();
-                let mut maybe_line_action_id_index = None;
-
-                for (line_index, line) in lines.iter().enumerate() {
-                    let details: Vec<&str> = line.split(" ").collect();
-                    let line_action_id = details[0];
-
-                    if line_action_id == action_id {
-                        maybe_line_action_id_index = Some(line_index);
-                        break;
-                    }
-                }
-
-                if let Some(line_action_id_index) = maybe_line_action_id_index {
-                    lines[line_action_id_index] = action_line.as_str();
-                } else {
-                    lines.push(&action_line.as_str());
-                }
-
-                fs::write(&cache_file_path, &lines.join("\n"))
-                    .await
-                    .unwrap();
-                return ();
-            }
-        }
-
-        fs::write(&cache_file_path, &action_line).await.unwrap();
-    }
-}
-
-async fn get_cache_action_checksum(action_id: &String, cwd: &String) -> Option<String> {
-    let cache_dir = get_cache_dir_path(cwd, true).await;
-    let checksum_cache_path = Path::new(&cache_dir).join("checksum");
-
-    if let Ok(checksum_cache_exists) = fs::try_exists(&checksum_cache_path).await {
-        if checksum_cache_exists {
-            if let Ok(cache_content) = fs::read_to_string(&checksum_cache_path).await {
-                let lines: Vec<&str> = cache_content.split("\n").collect();
-                for line in lines {
-                    let details: Vec<&str> = line.split(" ").collect();
-                    let line_action_id = details[0];
-                    if action_id == line_action_id {
-                        let line_checksum = details[1];
-                        return Some(String::from(line_checksum));
-                    }
-                }
-            }
-        }
-    }
-
-    None
-}
-
-async fn write_cache_action_checksum(action_id: &String, checksum: &String, cwd: &String) {
-    let cache_dir = get_cache_dir_path(cwd, true).await;
-    let checksum_cache_path = Path::new(&cache_dir).join("checksum");
-
-    if let Ok(checksum_cache_exists) = fs::try_exists(&checksum_cache_path).await {
-        if !checksum_cache_exists {
-            std::fs::File::create(&checksum_cache_path).unwrap();
-        }
-    }
-
-    if let Ok(cache_content) = fs::read_to_string(&checksum_cache_path).await {
-        let mut maybe_action_line_index = None;
-        let mut lines: Vec<&str> = cache_content.split("\n").collect();
-        for (line_index, line) in lines.iter().enumerate() {
-            let details: Vec<&str> = line.split(" ").collect();
-            let line_action_id = details[0];
-            if action_id == line_action_id {
-                maybe_action_line_index = Some(line_index);
-                break;
-            }
-        }
-
-        let formated_line = format!("{} {}", action_id, checksum);
-        if let Some(action_line_index) = maybe_action_line_index {
-            lines[action_line_index] = formated_line.as_str();
-        } else {
-            lines.push(formated_line.as_str());
-        }
-
-        let content = lines.join("\n");
-        fs::write(&checksum_cache_path, &content).await.unwrap();
-    }
-}
-
-async fn is_file_changed(cwd: &String, file: &String, action_id: &String) -> bool {
-    let mut file_changed = true;
-    let file_absolute_path = String::from(get_absolute_file_path(cwd, file).to_str().unwrap_or(""));
-
-    if let Some(modification_date) = get_file_modification_time(&file_absolute_path).await {
-        let cache_file = get_file_cache(cwd, &file_absolute_path).await;
-        if let Ok(cache_file_exists) = fs::try_exists(&cache_file).await {
-            if cache_file_exists {
-                let file_content = fs::read_to_string(&cache_file).await.unwrap();
-                let lines: Vec<&str> = file_content.split("\n").collect();
-
-                for line in lines {
-                    let details: Vec<&str> = line.split(" ").collect();
-                    let line_action_id = details[0];
-
-                    if line_action_id == action_id {
-                        let previous_time = String::from(details[1]);
-                        if previous_time == modification_date {
-                            file_changed = false;
-                        }
-                        break;
-                    }
-                }
-            }
-        }
-    }
-
-    file_changed
-}
+static SPINNER_TIME: u64 = 200;
 
 async fn download_file(
     url: &str,
     output_path: &str,
-    cwd: &String,
-    emakefile_cwd: &String,
+    cwd: &str,
+    emakefile_cwd: &str,
     maybe_credentials_key: &Option<String>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    log::text!("{}⏳ Downloading file {}...", log::INDENT, url);
-
+) -> Result<(), Box<dyn Error + Send + Sync>> {
     let mut maybe_credentials: Option<credentials::PlainCredentials> = None;
     if let Some(credentials_key) = maybe_credentials_key {
         let result_credentials_config = emake::loader::get_target_on_path(
-            &PathBuf::from(cwd),
+            cwd,
             credentials_key,
             emakefile_cwd,
             Some(TargetType::Credentials),
@@ -302,11 +65,7 @@ async fn download_file(
                         process::exit(1);
                     }
                 }
-                Target::TargetEntry(_) => {
-                    log::error!("The specified path {} is not a credential", credentials_key);
-                    std::process::exit(1);
-                }
-                Target::VariableEntry(_) => {
+                _ => {
                     log::error!("The specified path {} is not a credential", credentials_key);
                     std::process::exit(1);
                 }
@@ -332,20 +91,37 @@ async fn download_file(
         request = request.basic_auth(credentials.username, credentials.password);
     }
 
-    let response = request.send().await.expect("request failed");
+    let response = request.send().await?;
     if !response.status().is_success() {
         return Err(format!("Failed to download: HTTP {}", response.status()).into());
     }
 
-    // Open file for writing
-    let file = File::create(output_path)?;
-    let mut writer = BufWriter::new(file);
+    let total_size = response
+        .content_length()
+        .ok_or("Failed to get content length")?;
 
-    // Stream response into file
-    let content = response.bytes().await?;
-    copy(&mut content.as_ref(), &mut writer)?;
+    // Set up progress bar
+    let mp = MULTI_PROGRESS.clone();
+    let pb = mp.add(
+        ProgressBar::new(total_size)
+            .with_style(
+                ProgressStyle::with_template("Downloading file {prefix:.bold}\n {bar:40.cyan/blue} {bytes}/{total_bytes} ({eta})")?
+                    .progress_chars("=> "),
+            )
+            .with_prefix(String::from(url)),
+    );
 
-    log::text!("{}✅ File downloaded to: {}", log::INDENT, output_path);
+    let mut dest = BufWriter::new(File::create(output_path)?);
+    let mut downloaded: u64 = 0;
+    let mut stream = response.bytes_stream();
+
+    while let Some(chunk_result) = stream.next().await {
+        let chunk = chunk_result?;
+        dest.write_all(&chunk)?;
+        downloaded += chunk.len() as u64;
+        pb.set_position(downloaded);
+    }
+
     Ok(())
 }
 
@@ -360,25 +136,48 @@ fn get_filename_from_url(url: &str) -> Option<String> {
     None
 }
 
-async fn run_action(
-    action_id: &String,
-    silent: bool,
-    cwd: &String,
-    emakefile_cwd: &String,
-    in_files: &Vec<InFile>,
-    out_files: &Vec<String>,
-    action: &graph::Action,
-    cache_to_update: Arc<RwLock<Vec<(String, String)>>>,
+async fn run_step<'a>(
+    step_id: &'a str,
+    step: &'a Step,
+    cwd: &'a str,
+    emakefile_current_path: &'a str,
 ) {
-    log::info!("{}Running action {:?}", log::INDENT, action);
-    let maybe_plugin = ACTIONS_STORE.get(&action.plugin_id);
+    let mp = MULTI_PROGRESS.clone();
+    let spinner = mp.add(ProgressBar::hidden());
+    let step_description = step.name.clone().unwrap_or(step_id.to_string());
+
+    spinner.set_message(format!("Running step {}", step_description));
+    spinner.set_style(
+        ProgressStyle::with_template(&format!("{}{{spinner}} {{msg}}", log::INDENT))
+            .unwrap()
+    );
+    spinner.enable_steady_tick(Duration::from_millis(SPINNER_TIME));
+
+    let maybe_plugin = ACTIONS_STORE.get(&step.plugin);
 
     if let Some(plugin) = maybe_plugin {
+        let mut in_files;
+        if step.in_files.is_none() {
+            in_files = Vec::new()
+        } else {
+            in_files = step.in_files.clone().unwrap()
+        };
+
+        let mut out_files;
+        if step.out_files.is_none() {
+            out_files = Vec::new()
+        } else {
+            out_files = step.out_files.clone().unwrap()
+        };
+
+        plugin.insert_in_files(&step.plugin, &mut in_files).await;
+        plugin.insert_out_files(&step.plugin, &mut out_files).await;
+
         let mut need_to_run_action = in_files.len() == 0 && out_files.len() == 0;
         let mut real_in_files = Vec::new();
         let mut real_out_files = Vec::new();
-        let working_dir = get_working_dir_path(cwd, true).await;
-        let out_dir = get_out_dir_path(cwd, true).await;
+        let working_dir = cache::get_working_dir_path(cwd);
+        let out_dir = cache::get_out_dir_path(cwd);
         let default_replacements = HashMap::from([
             (String::from("EMAKE_WORKING_DIR"), working_dir.to_owned()),
             (String::from("EMAKE_CWD_DIR"), cwd.to_owned()),
@@ -386,11 +185,22 @@ async fn run_action(
         ]);
 
         // Get in files modification date
-        for in_file in in_files {
+        for in_file in &in_files {
+            let file_path;
+            let mut file_credentials = None;
+
+            match &in_file {
+                emake::InFile::Simple(src) => file_path = src,
+                emake::InFile::Detailed(in_file_entry) => {
+                    file_path = &in_file_entry.file;
+                    file_credentials = in_file_entry.clone().credentials;
+                }
+            }
+
             let compiled_in_file_string = emake::compiler::compile(
                 cwd,
-                &in_file.file,
-                emakefile_cwd,
+                &file_path,
+                emakefile_current_path,
                 Some(&default_replacements),
             );
             let mut files = Vec::from([compiled_in_file_string.clone()]);
@@ -402,38 +212,66 @@ async fn run_action(
                 Err(_) => (),
             }
 
-            let mut files_to_replace = HashMap::new();
+            let mut download_futures = Vec::new();
+            let mut downloadable_files_indices = Vec::new();
+
             for (index, file) in files.iter().enumerate() {
                 if graph::common::is_downloadable_file(file) {
                     let filename = get_filename_from_url(file).unwrap();
-                    let mut output = PathBuf::from(get_working_dir_path(cwd, true).await);
+                    let mut output = PathBuf::from(cache::get_working_dir_path(cwd));
                     output.push(&filename);
-                    let output_string = String::from(output.to_str().unwrap());
-                    if is_file_changed(cwd, &output_string, action_id).await {
-                        download_file(
-                            file,
-                            &output_string,
-                            cwd,
-                            emakefile_cwd,
-                            &in_file.credentials,
-                        )
-                        .await
-                        .unwrap();
+                    let output_string = output.to_str().unwrap().to_string();
+                    downloadable_files_indices.push((output_string.clone(), index));
+
+                    if cache::has_file_changed(cwd, &output_string, step_id).await {
+                        let file = file.clone(); // required if file is &String
+                        let cwd = cwd.to_string();
+                        let emakefile_current_path = emakefile_current_path.to_string();
+                        let file_credentials = file_credentials.clone();
+                        let _s = GLOBAL_SEMAPHORE.acquire().await;
+                        download_futures.push(tokio::spawn(async move {
+                            download_file(
+                                &file,
+                                &output_string,
+                                &cwd,
+                                &emakefile_current_path,
+                                &file_credentials,
+                            )
+                            .await
+                        }));
                     }
-                    files_to_replace.insert(output_string, index);
                 }
             }
 
-            for (replace, index) in files_to_replace {
-                let _ = std::mem::replace(&mut files[index], replace);
+            // Run all downloads in parallel
+            let download_results = join_all(download_futures).await;
+
+            // Check for errors
+            for result in download_results {
+                if let Err(err) = result {
+                    log::error!("Download task panicked: {:?}", err);
+                } else if let Err(err) = result.unwrap() {
+                    log::error!("Download failed: {:?}", err);
+                }
+            }
+
+            // Replace URLs with local file paths
+            for (replace, index) in downloadable_files_indices {
+                if let Some(file) = files.get_mut(index) {
+                    *file = replace;
+                }
             }
 
             real_in_files.extend(files);
         }
 
-        for out_file in out_files {
-            let compiled_out_file_string =
-                emake::compiler::compile(cwd, out_file, emakefile_cwd, Some(&default_replacements));
+        for out_file in &out_files {
+            let compiled_out_file_string = emake::compiler::compile(
+                cwd,
+                out_file,
+                emakefile_current_path,
+                Some(&default_replacements),
+            );
             let mut files = Vec::from([compiled_out_file_string.clone()]);
 
             let parsed_compiled_files_result: Result<Vec<String>, _> =
@@ -451,31 +289,31 @@ async fn run_action(
         real_files.extend(&real_out_files);
 
         for file in &real_files {
-            let file_changed = is_file_changed(cwd, *file, action_id).await;
+            let file_changed = cache::has_file_changed(cwd, *file, step_id).await;
             if file_changed {
                 log::info!("File change {}", *file);
                 need_to_run_action = true;
             }
         }
 
-        if let Some(checksum_command) = &action.checksum {
+        if let Some(checksum_command) = &step.checksum {
             let mut maybe_checksum: Option<String> = None;
             let (status, stdout, stderr) = utils::run_command(
                 checksum_command,
                 Path::new(cwd),
-                Path::new(emakefile_cwd),
+                Path::new(emakefile_current_path),
                 Some(&default_replacements),
             );
 
             if ExitStatus::success(&status) {
                 maybe_checksum = Some(stdout);
             } else {
-                log::warning!("Error when computing checksum of action {action_id}: {stderr}");
+                log::warning!("Error when computing checksum of action {step_id}: {stderr}");
             }
 
             if let Some(checksum) = maybe_checksum {
                 if let Some(current_action_checksum) =
-                    get_cache_action_checksum(action_id, cwd).await
+                    cache::get_cache_action_checksum(step_id, cwd).await
                 {
                     if checksum.trim().to_string() != current_action_checksum {
                         log::info!(
@@ -489,13 +327,20 @@ async fn run_action(
             }
         }
 
+        // Compute action footprint
+        let action_footprint = compute_action_footprint(&step.plugin);
+        let register_footprint = get_registered_action_footprint(&step_id, cwd).await;
+        if register_footprint.is_none() || action_footprint != register_footprint.unwrap() {
+            need_to_run_action = true;
+        }
+
         if need_to_run_action {
             let has_error = plugin
                 .run(
                     cwd,
-                    emakefile_cwd,
-                    silent,
-                    &action.args,
+                    emakefile_current_path,
+                    false,
+                    &step.plugin,
                     &real_in_files,
                     &real_out_files,
                     &working_dir,
@@ -504,22 +349,23 @@ async fn run_action(
                 .await;
 
             if !has_error {
+                // Register footprint
+                register_action_footprint(&step_id, &action_footprint, cwd).await;
+
+                // Register files cache
                 for file in &real_files {
                     let file_absolute_path =
                         String::from(get_absolute_file_path(cwd, *file).to_str().unwrap());
-                    cache_to_update
-                        .write()
-                        .await
-                        .push((file_absolute_path, action_id.clone()));
+                    CACHE_TO_UPDATE.insert((file_absolute_path, String::from(step_id)));
                 }
 
                 // Compute checksum
-                if let Some(checksum_command) = &action.checksum {
+                if let Some(checksum_command) = &step.checksum {
                     let mut maybe_checksum: Option<String> = None;
                     let (status, stdout, stderr) = utils::run_command(
                         checksum_command,
                         Path::new(cwd),
-                        Path::new(emakefile_cwd),
+                        Path::new(emakefile_current_path),
                         Some(&default_replacements),
                     );
 
@@ -527,182 +373,98 @@ async fn run_action(
                         maybe_checksum = Some(stdout);
                     } else {
                         log::warning!(
-                            "Error when computing checksum of action {action_id}: {stderr}"
+                            "Error when computing checksum of action {step_id}: {stderr}"
                         );
                     }
 
                     if let Some(checksum) = maybe_checksum {
-                        write_cache_action_checksum(action_id, &checksum.trim().to_string(), cwd)
-                            .await
+                        cache::write_cache_action_checksum(
+                            step_id,
+                            &checksum.trim().to_string(),
+                            cwd,
+                        )
+                        .await
                     }
                 }
-                log::info!("{}Action {:?} done successfully !", log::INDENT, action);
+
+                cache::write_cache(cwd).await; // Only usefull if we call several time a target
+                log::info!("{}Action {} done successfully !", log::INDENT, step_id);
             }
         } else {
             log::info!(
-                "{}No need to run action {:?} because no input/output files changed",
+                "{}No need to run action {} because no input/output files changed",
                 log::INDENT,
-                action
+                step_id
             );
         }
     }
 }
 
-fn bfs_parallel(
-    graph: Arc<RwLock<graph::Graph>>,
-    node_id: String,
-    semaphore: Arc<Semaphore>,
-    running_tasks: Arc<RwLock<HashMap<String, JoinHandle<()>>>>,
-    emakefile: Arc<RwLock<emake::Emakefile>>,
-    visited: Arc<RwLock<HashSet<String>>>,
-    silent: bool,
+pub fn run_target3<'a>(
+    target_absolute_path: String,
     cwd: String,
-    root_dir: String,
-    cache_to_update: Arc<RwLock<Vec<(String, String)>>>,
-    p_current_step: usize,
-    total_steps: usize,
-) -> impl Future + Send {
-    async move {
-        let mut current_step = p_current_step;
-        if !visited.read().await.contains(&node_id) {
-            visited.write().await.insert(node_id.clone());
+) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
+    Box::pin(async move {
+        let emakefile_path = to_emakefile_path(&target_absolute_path, &cwd);
+        let emakefile = emake::loader::load_file(&emakefile_path.to_string_lossy().to_string());
+        let target_info = extract_info_from_path(
+            &target_absolute_path,
+            &cwd,
+            &emakefile_path.to_string_lossy().to_string(),
+        );
 
-            // Get the current node
-            let maybe_node = {
-                let safe_graph = graph.read().await;
-                safe_graph.nodes.get(&node_id).cloned()
-            };
+        let target = emakefile.targets.get(&target_info.target_name).unwrap();
+        if let Some(deps) = &target.deps {
+            let mut dependencies_tasks: Vec<JoinHandle<()>> = Vec::new();
 
-            if let Some(node) = maybe_node {
-                // Wait for all incomming actions
-                for in_neighbor_id in &node.in_neighbors {
-                    if let Some(t) = running_tasks.write().await.get_mut(in_neighbor_id) {
-                        t.await.unwrap();
-                    }
-                    running_tasks.write().await.remove(in_neighbor_id);
-                }
+            for dependency in deps {
+                let dependency_target_path =
+                    get_absolute_target_path(dependency, &emakefile.path.clone().unwrap(), &cwd);
 
-                // Get all output neighbors
-                let mut action_number = 0;
-                let neighbors = node.out_neighbors;
-                for neighbor_id in &neighbors {
-                    // If action run it
-                    let g = graph.read().await;
-                    let neighbor = g.nodes.get(neighbor_id).unwrap();
-                    let in_files = neighbor.in_files.clone();
-                    let out_files = neighbor.out_files.clone();
-                    let action_id = neighbor.id.clone();
-                    let emakefile_cwd = neighbor.cwd.clone();
-                    if let Some(action) = &neighbor.action {
-                        // Run it using the plugin store
-                        let _ = semaphore.acquire().await.unwrap();
-                        let cache_to_update_clone = Arc::clone(&cache_to_update);
-                        let cloned_action = action.clone();
-                        let cloned_cwd = cwd.clone();
-                        current_step += 1;
-                        action_number += 1;
-                        log::step!(
-                            current_step,
-                            total_steps,
-                            "Running action {} of target {}",
-                            action_number,
-                            node_id
-                        );
-                        let r = task::spawn(async move {
-                            let m = get_mutex_for_id(&action_id).await;
-                            let _guard = m.lock().await;
-                            run_action(
-                                &action_id,
-                                silent,
-                                &cloned_cwd,
-                                &emakefile_cwd,
-                                &in_files,
-                                &out_files,
-                                &cloned_action,
-                                cache_to_update_clone,
-                            )
-                            .await;
-                        });
+                let dependency_target_path_clone = dependency_target_path.clone();
+                let cwd_clone = cwd.clone();
 
-                        running_tasks.write().await.insert(neighbor_id.clone(), r);
-                    }
-                }
+                let _s = GLOBAL_SEMAPHORE.acquire().await;
+                let handle = tokio::spawn(async move {
+                    run_target3(dependency_target_path_clone, cwd_clone).await;
+                });
 
-                for neighbor_id in &neighbors {
-                    let graph_clone = Arc::clone(&graph);
-                    let neighbor_clone = neighbor_id.clone();
-                    let semaphore_clone = Arc::clone(&semaphore);
-                    let running_tasks_clone = Arc::clone(&running_tasks);
-                    let emakefile_clone = Arc::clone(&emakefile);
-                    let visited_clone = Arc::clone(&visited);
-                    let cache_to_update_clone = Arc::clone(&cache_to_update);
-                    let silent_clone = silent.clone();
-
-                    Box::pin(bfs_parallel(
-                        graph_clone,
-                        neighbor_clone,
-                        semaphore_clone,
-                        running_tasks_clone,
-                        emakefile_clone,
-                        visited_clone,
-                        silent_clone,
-                        cwd.clone(),
-                        root_dir.clone(),
-                        cache_to_update_clone,
-                        current_step,
-                        total_steps,
-                    ))
-                    .await;
-                }
+                dependencies_tasks.push(handle);
             }
+
+            // Await all dependency tasks
+            futures::future::join_all(dependencies_tasks).await;
         }
-    }
-}
 
-pub async fn run_target(
-    target_id: &String,
-    graph: graph::Graph,
-    emakefile: emake::Emakefile,
-    silent: &bool,
-    cwd: &String,
-) {
-    let total_steps = graph::analysor::steps_len(&graph);
-    log::info!("Total steps to run {total_steps} for target {target_id}\n");
+        // Run steps now !
+        // println!("Run step {:?}", target);
+        let mp = MULTI_PROGRESS.clone();
+        let spinner = mp.add(ProgressBar::new_spinner());
+        spinner.set_message(style(format!("Running target {}...", target_absolute_path)).blue().bold().to_string());
+        spinner.enable_steady_tick(Duration::from_millis(SPINNER_TIME));
+        if let Some(steps) = &target.steps {
+            let mut steps_tasks: Vec<JoinHandle<()>> = Vec::new();
 
-    let mgraph = Arc::new(RwLock::new(graph));
-    let semaphore = Arc::new(Semaphore::new(20));
-    let running_tasks = Arc::new(RwLock::new(HashMap::new()));
-    let running_tasks_clone = Arc::clone(&running_tasks);
-    let memakefile = Arc::new(RwLock::new(emakefile));
-    let visited = Arc::new(RwLock::new(HashSet::new()));
-    let cache_to_update = Arc::new(RwLock::new(Vec::new()));
-    let read_cache_to_update = cache_to_update.clone();
-    let silent_clone = silent.clone();
+            for (step_index, step) in steps.iter().enumerate() {
+                let step_index_string = format!("{}", step_index);
+                let step_id = target_absolute_path.clone() + "/" + step_index_string.as_str();
+                let cwd_clone = cwd.clone();
+                let step_clone = step.clone();
+                let emakefile_path = emakefile_path.to_string_lossy().to_string();
+                let handle: JoinHandle<()> = tokio::spawn(async move {
+                    let m = get_mutex_for_id(&step_id).await;
+                    let _guard = m.lock().await;
+                    run_step(&step_id, &step_clone, &cwd_clone, &emakefile_path).await;
+                });
+                steps_tasks.push(handle);
+            }
 
-    create_dir(cwd, WORKING_DIR).await;
-    create_dir(cwd, CACHE_DIR).await;
-    create_dir(cwd, OUT_DIR).await;
-
-    bfs_parallel(
-        mgraph,
-        target_id.clone(),
-        semaphore,
-        running_tasks_clone,
-        memakefile,
-        visited,
-        silent_clone,
-        cwd.clone(),
-        cwd.clone(),
-        cache_to_update,
-        // outfiles,
-        0,
-        total_steps,
-    )
-    .await;
-
-    for task in running_tasks.write().await.iter_mut() {
-        task.1.await.unwrap();
-    }
-
-    write_cache(cwd, read_cache_to_update).await;
+            futures::future::join_all(steps_tasks).await;
+            spinner.finish_with_message(format!(
+                "{} target {} done",
+                style("✔").green().bold(),
+                style(target_absolute_path).bold()
+            ));
+        }
+    })
 }

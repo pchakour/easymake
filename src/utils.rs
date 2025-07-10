@@ -4,7 +4,6 @@ use std::{
     io::{BufRead, BufReader, Read},
     path::Path,
     process::{Command, Stdio},
-    sync::{Arc, Mutex},
 };
 
 pub fn run_command(
@@ -84,4 +83,13 @@ pub fn run_command(
     }
 
     (status, stdout_output, stderr_output)
+}
+
+pub fn get_absolute_file_path(cwd: &str, file: &str) -> std::path::PathBuf {
+    let mut path = std::path::PathBuf::from(&file);
+    if !path.is_absolute() {
+        path = std::path::PathBuf::from(cwd);
+        path.push(file);
+    }
+    path
 }

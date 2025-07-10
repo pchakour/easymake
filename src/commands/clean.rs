@@ -11,7 +11,8 @@ use std::{
 use crate::{
     console::log,
     emake,
-    graph::{self, runner::{get_out_dir_path, get_working_dir_path}},
+    cache,
+    graph,
 };
 
 const CACHE_DIR: &str = ".emake";
@@ -25,8 +26,8 @@ pub async fn run(cwd: &Path) {
     path.push(CACHE_DIR);
     let _ = std::fs::remove_dir_all(path);
 
-    let working_dir = get_working_dir_path(&String::from(cwd.to_str().unwrap()), true).await;
-    let out_dir = get_out_dir_path(&String::from(cwd.to_str().unwrap()), true).await;
+    let working_dir = cache::get_working_dir_path(&String::from(cwd.to_str().unwrap()));
+    let out_dir = cache::get_out_dir_path(&String::from(cwd.to_str().unwrap()));
     let default_replacements = HashMap::from([
         (String::from("EMAKE_WORKING_DIR"), working_dir.to_owned()),
         (String::from("EMAKE_OUT_DIR"), out_dir.to_owned()),

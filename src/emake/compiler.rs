@@ -5,8 +5,8 @@ use regex::Regex;
 
 use crate::{console::log, emake::{self, loader::{Target, TargetType}}, CREDENTIALS_STORE};
 
-fn call_glob(cwd: &Path, pattern: &String) -> Option<String> {
-    let absolute_pattern = cwd.join(pattern);
+fn call_glob(cwd: &str, pattern: &String) -> Option<String> {
+    let absolute_pattern = Path::new(cwd).join(pattern);
     let mut paths: Vec<String> = Vec::new();
     for entry in glob(&absolute_pattern.to_string_lossy()).expect(&format!("Failed to read glob pattern {}", pattern)) {
         match entry {
@@ -24,7 +24,7 @@ fn call_glob(cwd: &Path, pattern: &String) -> Option<String> {
     Some(result)
 }
 
-fn call_credential_password(cwd: &Path, emakefile_current_path: &String, credential_name: &String) -> Option<String> {
+fn call_credential_password(cwd: &str, emakefile_current_path: &str, credential_name: &String) -> Option<String> {
     let result_credentials_config = emake::loader::get_target_on_path(
         cwd, 
         credential_name, 
@@ -40,7 +40,7 @@ fn call_credential_password(cwd: &Path, emakefile_current_path: &String, credent
                     let maybe_credential_plugin = CREDENTIALS_STORE.get(&credential_type);
                     match maybe_credential_plugin {
                         Some(credential_plugin) => {
-                            return credential_plugin.extract(cwd.to_str().unwrap(), &raw_credential).password;
+                            return credential_plugin.extract(cwd, &raw_credential).password;
                         },
                         None => {
                             log::error!("Type {} doesn't exist for credential {}", credential_type, credential_name);
@@ -59,7 +59,7 @@ fn call_credential_password(cwd: &Path, emakefile_current_path: &String, credent
     }
 }
 
-fn call_credential_username(cwd: &Path, emakefile_current_path: &String, credential_name: &String) -> Option<String> {
+fn call_credential_username(cwd: &str, emakefile_current_path: &str, credential_name: &str) -> Option<String> {
     let result_credentials_config = emake::loader::get_target_on_path(
         cwd, 
         credential_name, 
@@ -75,7 +75,7 @@ fn call_credential_username(cwd: &Path, emakefile_current_path: &String, credent
                     let maybe_credential_plugin = CREDENTIALS_STORE.get(&credential_type);
                     match maybe_credential_plugin {
                         Some(credential_plugin) => {
-                            return Some(credential_plugin.extract(cwd.to_str().unwrap(), &raw_credential).username);
+                            return Some(credential_plugin.extract(cwd, &raw_credential).username);
                         },
                         None => {
                             log::error!("Type {} doesn't exist for credential {}", credential_type, credential_name);
@@ -105,7 +105,7 @@ fn extract_function_args(element: &str, function: &str) -> Vec<String> {
     args.split(',').map(|e| { e.replace('"', "").replace("'", "")}).collect()
 }
 
-fn call_function(cwd: &Path, emakefile_current_path: &String, element: &str) -> Option<String> {
+fn call_function(cwd: &str, emakefile_current_path: &str, element: &str) -> Option<String> {
     let glob_re: Regex = Regex::new(r####"["|']{0,1}\s*glob(.[^)])\s*["|']{0,1}"####).unwrap();
     if glob_re.is_match(&element) {
         let args = extract_function_args(&element, "glob");
@@ -127,7 +127,7 @@ fn call_function(cwd: &Path, emakefile_current_path: &String, element: &str) -> 
     return None;
 }
 
-fn get_user_variable(user_variable: &String, cwd: &Path, emakefile_current_path: &String) -> Result<String, String> {
+fn get_user_variable(user_variable: &String, cwd: &str, emakefile_current_path: &str) -> Result<String, String> {
     let result_target = emake::loader::get_target_on_path(
         cwd, 
         user_variable, 
@@ -151,10 +151,9 @@ fn get_user_variable(user_variable: &String, cwd: &Path, emakefile_current_path:
 pub fn compile(
     cwd: &str,
     content: &str,
-    emakefile_current_path: &String,
+    emakefile_current_path: &str,
     maybe_replacements: Option<&HashMap<String, String>>
 ) -> String {
-    let current_dir = std::path::Path::new(cwd);
     let re = Regex::new(r"\{\{(.*?)\}\}").unwrap();
     let result = re.replace_all(content, |caps: &regex::Captures| {
         let mut element = String::from(caps[1].trim());
@@ -164,7 +163,7 @@ pub fn compile(
         element = var_re.replace_all(&element, |var_caps: &regex::Captures| {
             let result_variable = get_user_variable(
                 &var_caps[1].trim().to_string(), 
-                current_dir,
+                cwd,
                 emakefile_current_path
             );
 
@@ -192,7 +191,7 @@ pub fn compile(
 
         let result_variable = get_user_variable(
             &element.trim().to_string(), 
-            current_dir,
+            cwd,
             emakefile_current_path
         );
 
@@ -213,7 +212,7 @@ pub fn compile(
         }
 
         // Call functions
-        if let Some(result_function) =  call_function(current_dir, emakefile_current_path, &element) {
+        if let Some(result_function) =  call_function(cwd, emakefile_current_path, &element) {
             element = result_function;
         }
 
