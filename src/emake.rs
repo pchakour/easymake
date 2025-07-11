@@ -2,18 +2,18 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_yml::{Value};
 use std::collections::HashMap;
 
-use crate::actions::{cmd, copy};
+use crate::actions::{cmd, copy, extract, mv};
 
 pub mod loader;
 pub mod compiler;
 
-pub type TargetEntry = HashMap<String, Value>;
 pub type CredentialEntry = HashMap<String, Value>;
 pub type VariableEntry = String;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Target {
     pub deps: Option<Vec<String>>,
+    pub parallel: Option<bool>,
     pub steps: Option<Vec<Step>>,
 }
 
@@ -43,7 +43,7 @@ pub struct Step {
     #[serde(default)]
     pub clean: Option<String>,
     #[serde(default)]
-    pub name: Option<String>,
+    pub description: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -51,6 +51,11 @@ pub struct Step {
 pub enum PluginAction {
     Cmd { cmd: cmd::CmdAction },
     Copy { copy: copy::CopyAction },
+    Extract { extract: extract::ExtractAction },
+    Move {
+        #[serde(rename = "move")] 
+        mv: mv::MoveAction
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

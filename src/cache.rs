@@ -1,6 +1,6 @@
 use std::{
     path::{Path, PathBuf},
-    process,
+    process, time::SystemTime,
 };
 
 use crate::{console::log, utils::get_absolute_file_path, CACHE_TO_UPDATE};
@@ -46,8 +46,9 @@ pub async fn write_cache(cwd: &str) {
                     }
                 }
             } else {
-                log::error!("You try to cache a file that doesn't exist. Check your input/output, the file is {}", file_absolute_path);
-                process::exit(1);
+                let current_time = format!("{:?}", SystemTime::now()).replace(" ", "");
+                write_file_in_cache(cwd, file_absolute_path, action_id, &current_time).await;
+                log::warning!("You try to cache a file that doesn't exist. Check your input/output, the file is {}", file_absolute_path);
             }
         }
     }
@@ -67,7 +68,10 @@ async fn get_file_modification_time(file_absolute_path: &str) -> Option<String> 
         },
         Ok(false) => (),
         Err(error) => {
-            panic!("try_exists failed on file {}: {}", file_absolute_path, error);
+            panic!(
+                "try_exists failed on file {}: {}",
+                file_absolute_path, error
+            );
         }
     }
 
@@ -124,7 +128,9 @@ async fn write_file_in_cache(
             }
         }
 
-        tokio::fs::write(&cache_file_path, &action_line).await.unwrap();
+        tokio::fs::write(&cache_file_path, &action_line)
+            .await
+            .unwrap();
     }
 }
 
@@ -181,7 +187,9 @@ pub async fn write_cache_action_checksum(action_id: &str, checksum: &str, cwd: &
         }
 
         let content = lines.join("\n");
-        tokio::fs::write(&checksum_cache_path, &content).await.unwrap();
+        tokio::fs::write(&checksum_cache_path, &content)
+            .await
+            .unwrap();
     }
 }
 
@@ -216,11 +224,7 @@ pub async fn has_file_changed(cwd: &str, file: &str, action_id: &str) -> bool {
 }
 
 fn get_file_cache(cwd: &str, file_absolute_path: &str) -> std::path::PathBuf {
-    let cache_path = format!(
-        "{}{}/time",
-        get_cache_dir_path(cwd),
-        file_absolute_path
-    );
+    let cache_path = format!("{}{}/time", get_cache_dir_path(cwd), file_absolute_path);
     let path = std::path::Path::new(&cache_path);
     path.to_path_buf()
 }

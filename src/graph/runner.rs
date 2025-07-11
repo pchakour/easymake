@@ -144,259 +144,253 @@ async fn run_step<'a>(
 ) {
     let mp = MULTI_PROGRESS.clone();
     let spinner = mp.add(ProgressBar::hidden());
-    let step_description = step.name.clone().unwrap_or(step_id.to_string());
+    let step_description = step.description.clone().unwrap_or(step_id.to_string());
 
     spinner.set_message(format!("Running step {}", step_description));
     spinner.set_style(
-        ProgressStyle::with_template(&format!("{}{{spinner}} {{msg}}", log::INDENT))
-            .unwrap()
+        ProgressStyle::with_template(&format!("{}{{spinner}} {{msg}}", log::INDENT)).unwrap(),
     );
     spinner.enable_steady_tick(Duration::from_millis(SPINNER_TIME));
 
-    let maybe_plugin = ACTIONS_STORE.get(&step.plugin);
+    let plugin = ACTIONS_STORE.get(&step.plugin).expect(&format!(
+        "Can't execute step \"{}\", we are not able to find the plugin used in this step",
+        step.description.clone().unwrap_or(step_id.to_string())
+    ));
 
-    if let Some(plugin) = maybe_plugin {
-        let mut in_files;
-        if step.in_files.is_none() {
-            in_files = Vec::new()
-        } else {
-            in_files = step.in_files.clone().unwrap()
-        };
+    let mut in_files;
+    if step.in_files.is_none() {
+        in_files = Vec::new()
+    } else {
+        in_files = step.in_files.clone().unwrap()
+    };
 
-        let mut out_files;
-        if step.out_files.is_none() {
-            out_files = Vec::new()
-        } else {
-            out_files = step.out_files.clone().unwrap()
-        };
+    let mut out_files;
+    if step.out_files.is_none() {
+        out_files = Vec::new()
+    } else {
+        out_files = step.out_files.clone().unwrap()
+    };
 
-        plugin.insert_in_files(&step.plugin, &mut in_files).await;
-        plugin.insert_out_files(&step.plugin, &mut out_files).await;
+    plugin.insert_in_files(&step.plugin, &mut in_files).await;
+    plugin.insert_out_files(&step.plugin, &mut out_files).await;
 
-        let mut need_to_run_action = in_files.len() == 0 && out_files.len() == 0;
-        let mut real_in_files = Vec::new();
-        let mut real_out_files = Vec::new();
-        let working_dir = cache::get_working_dir_path(cwd);
-        let out_dir = cache::get_out_dir_path(cwd);
-        let default_replacements = HashMap::from([
-            (String::from("EMAKE_WORKING_DIR"), working_dir.to_owned()),
-            (String::from("EMAKE_CWD_DIR"), cwd.to_owned()),
-            (String::from("EMAKE_OUT_DIR"), out_dir.to_owned()),
-        ]);
+    let mut need_to_run_action = in_files.len() == 0 && out_files.len() == 0;
+    let mut real_in_files = Vec::new();
+    let mut real_out_files = Vec::new();
+    let working_dir = cache::get_working_dir_path(cwd);
+    let out_dir = cache::get_out_dir_path(cwd);
+    let default_replacements = HashMap::from([
+        (String::from("EMAKE_WORKING_DIR"), working_dir.to_owned()),
+        (String::from("EMAKE_CWD_DIR"), cwd.to_owned()),
+        (String::from("EMAKE_OUT_DIR"), out_dir.to_owned()),
+    ]);
 
-        // Get in files modification date
-        for in_file in &in_files {
-            let file_path;
-            let mut file_credentials = None;
+    // Get in files modification date
+    for in_file in &in_files {
+        let file_path;
+        let mut file_credentials = None;
 
-            match &in_file {
-                emake::InFile::Simple(src) => file_path = src,
-                emake::InFile::Detailed(in_file_entry) => {
-                    file_path = &in_file_entry.file;
-                    file_credentials = in_file_entry.clone().credentials;
-                }
-            }
-
-            let compiled_in_file_string = emake::compiler::compile(
-                cwd,
-                &file_path,
-                emakefile_current_path,
-                Some(&default_replacements),
-            );
-            let mut files = Vec::from([compiled_in_file_string.clone()]);
-
-            let parsed_compiled_files_result: Result<Vec<String>, _> =
-                serde_yml::from_str(&compiled_in_file_string);
-            match parsed_compiled_files_result {
-                Ok(parsed_compiled_files) => files = parsed_compiled_files,
-                Err(_) => (),
-            }
-
-            let mut download_futures = Vec::new();
-            let mut downloadable_files_indices = Vec::new();
-
-            for (index, file) in files.iter().enumerate() {
-                if graph::common::is_downloadable_file(file) {
-                    let filename = get_filename_from_url(file).unwrap();
-                    let mut output = PathBuf::from(cache::get_working_dir_path(cwd));
-                    output.push(&filename);
-                    let output_string = output.to_str().unwrap().to_string();
-                    downloadable_files_indices.push((output_string.clone(), index));
-
-                    if cache::has_file_changed(cwd, &output_string, step_id).await {
-                        let file = file.clone(); // required if file is &String
-                        let cwd = cwd.to_string();
-                        let emakefile_current_path = emakefile_current_path.to_string();
-                        let file_credentials = file_credentials.clone();
-                        let _s = GLOBAL_SEMAPHORE.acquire().await;
-                        download_futures.push(tokio::spawn(async move {
-                            download_file(
-                                &file,
-                                &output_string,
-                                &cwd,
-                                &emakefile_current_path,
-                                &file_credentials,
-                            )
-                            .await
-                        }));
-                    }
-                }
-            }
-
-            // Run all downloads in parallel
-            let download_results = join_all(download_futures).await;
-
-            // Check for errors
-            for result in download_results {
-                if let Err(err) = result {
-                    log::error!("Download task panicked: {:?}", err);
-                } else if let Err(err) = result.unwrap() {
-                    log::error!("Download failed: {:?}", err);
-                }
-            }
-
-            // Replace URLs with local file paths
-            for (replace, index) in downloadable_files_indices {
-                if let Some(file) = files.get_mut(index) {
-                    *file = replace;
-                }
-            }
-
-            real_in_files.extend(files);
-        }
-
-        for out_file in &out_files {
-            let compiled_out_file_string = emake::compiler::compile(
-                cwd,
-                out_file,
-                emakefile_current_path,
-                Some(&default_replacements),
-            );
-            let mut files = Vec::from([compiled_out_file_string.clone()]);
-
-            let parsed_compiled_files_result: Result<Vec<String>, _> =
-                serde_yml::from_str(&compiled_out_file_string);
-            match parsed_compiled_files_result {
-                Ok(parsed_compiled_files) => files = parsed_compiled_files,
-                Err(_) => (),
-            }
-
-            real_out_files.extend(files);
-        }
-
-        let mut real_files = Vec::new();
-        real_files.extend(&real_in_files);
-        real_files.extend(&real_out_files);
-
-        for file in &real_files {
-            let file_changed = cache::has_file_changed(cwd, *file, step_id).await;
-            if file_changed {
-                log::info!("File change {}", *file);
-                need_to_run_action = true;
+        match &in_file {
+            emake::InFile::Simple(src) => file_path = src,
+            emake::InFile::Detailed(in_file_entry) => {
+                file_path = &in_file_entry.file;
+                file_credentials = in_file_entry.clone().credentials;
             }
         }
 
-        if let Some(checksum_command) = &step.checksum {
-            let mut maybe_checksum: Option<String> = None;
-            let (status, stdout, stderr) = utils::run_command(
-                checksum_command,
-                Path::new(cwd),
-                Path::new(emakefile_current_path),
-                Some(&default_replacements),
-            );
+        let compiled_in_file_string = emake::compiler::compile(
+            cwd,
+            &file_path,
+            emakefile_current_path,
+            Some(&default_replacements),
+        );
+        let mut files = Vec::from([compiled_in_file_string.clone()]);
 
-            if ExitStatus::success(&status) {
-                maybe_checksum = Some(stdout);
-            } else {
-                log::warning!("Error when computing checksum of action {step_id}: {stderr}");
-            }
-
-            if let Some(checksum) = maybe_checksum {
-                if let Some(current_action_checksum) =
-                    cache::get_cache_action_checksum(step_id, cwd).await
-                {
-                    if checksum.trim().to_string() != current_action_checksum {
-                        log::info!(
-                            "Checksum change from {} to {}",
-                            current_action_checksum,
-                            checksum.trim().to_string()
-                        );
-                        need_to_run_action = true;
-                    }
-                }
-            }
+        let parsed_compiled_files_result: Result<Vec<String>, _> =
+            serde_yml::from_str(&compiled_in_file_string);
+        match parsed_compiled_files_result {
+            Ok(parsed_compiled_files) => files = parsed_compiled_files,
+            Err(_) => (),
         }
 
-        // Compute action footprint
-        let action_footprint = compute_action_footprint(&step.plugin);
-        let register_footprint = get_registered_action_footprint(&step_id, cwd).await;
-        if register_footprint.is_none() || action_footprint != register_footprint.unwrap() {
-            need_to_run_action = true;
-        }
+        let mut download_futures = Vec::new();
+        let mut downloadable_files_indices = Vec::new();
 
-        if need_to_run_action {
-            let has_error = plugin
-                .run(
-                    cwd,
-                    emakefile_current_path,
-                    false,
-                    &step.plugin,
-                    &real_in_files,
-                    &real_out_files,
-                    &working_dir,
-                    Some(&default_replacements),
-                )
-                .await;
+        for (index, file) in files.iter().enumerate() {
+            if graph::common::is_downloadable_file(file) {
+                let filename = get_filename_from_url(file).unwrap();
+                let mut output = PathBuf::from(cache::get_working_dir_path(cwd));
+                output.push(&filename);
+                let output_string = output.to_str().unwrap().to_string();
+                downloadable_files_indices.push((output_string.clone(), index));
 
-            if !has_error {
-                // Register footprint
-                register_action_footprint(&step_id, &action_footprint, cwd).await;
-
-                // Register files cache
-                for file in &real_files {
-                    let file_absolute_path =
-                        String::from(get_absolute_file_path(cwd, *file).to_str().unwrap());
-                    CACHE_TO_UPDATE.insert((file_absolute_path, String::from(step_id)));
-                }
-
-                // Compute checksum
-                if let Some(checksum_command) = &step.checksum {
-                    let mut maybe_checksum: Option<String> = None;
-                    let (status, stdout, stderr) = utils::run_command(
-                        checksum_command,
-                        Path::new(cwd),
-                        Path::new(emakefile_current_path),
-                        Some(&default_replacements),
-                    );
-
-                    if ExitStatus::success(&status) {
-                        maybe_checksum = Some(stdout);
-                    } else {
-                        log::warning!(
-                            "Error when computing checksum of action {step_id}: {stderr}"
-                        );
-                    }
-
-                    if let Some(checksum) = maybe_checksum {
-                        cache::write_cache_action_checksum(
-                            step_id,
-                            &checksum.trim().to_string(),
-                            cwd,
+                if cache::has_file_changed(cwd, &output_string, step_id).await {
+                    let file = file.clone(); // required if file is &String
+                    let cwd = cwd.to_string();
+                    let emakefile_current_path = emakefile_current_path.to_string();
+                    let file_credentials = file_credentials.clone();
+                    let _s = GLOBAL_SEMAPHORE.acquire().await;
+                    download_futures.push(tokio::spawn(async move {
+                        download_file(
+                            &file,
+                            &output_string,
+                            &cwd,
+                            &emakefile_current_path,
+                            &file_credentials,
                         )
                         .await
-                    }
+                    }));
+                }
+            }
+        }
+
+        // Run all downloads in parallel
+        let download_results = join_all(download_futures).await;
+
+        // Check for errors
+        for result in download_results {
+            if let Err(err) = result {
+                log::error!("Download task panicked: {:?}", err);
+            } else if let Err(err) = result.unwrap() {
+                log::error!("Download failed: {:?}", err);
+            }
+        }
+
+        // Replace URLs with local file paths
+        for (replace, index) in downloadable_files_indices {
+            if let Some(file) = files.get_mut(index) {
+                *file = replace;
+            }
+        }
+
+        real_in_files.extend(files);
+    }
+
+    for out_file in &out_files {
+        let compiled_out_file_string = emake::compiler::compile(
+            cwd,
+            out_file,
+            emakefile_current_path,
+            Some(&default_replacements),
+        );
+        let mut files = Vec::from([compiled_out_file_string.clone()]);
+
+        let parsed_compiled_files_result: Result<Vec<String>, _> =
+            serde_yml::from_str(&compiled_out_file_string);
+        match parsed_compiled_files_result {
+            Ok(parsed_compiled_files) => files = parsed_compiled_files,
+            Err(_) => (),
+        }
+
+        real_out_files.extend(files);
+    }
+
+    let mut real_files = Vec::new();
+    real_files.extend(&real_in_files);
+    real_files.extend(&real_out_files);
+
+    for file in &real_files {
+        let file_changed = cache::has_file_changed(cwd, *file, step_id).await;
+        if file_changed {
+            log::info!("File change {}", *file);
+            need_to_run_action = true;
+        }
+    }
+
+    if let Some(checksum_command) = &step.checksum {
+        let mut maybe_checksum: Option<String> = None;
+        let (status, stdout, stderr) = utils::run_command(
+            checksum_command,
+            Path::new(cwd),
+            Path::new(emakefile_current_path),
+            Some(&default_replacements),
+        );
+
+        if ExitStatus::success(&status) {
+            maybe_checksum = Some(stdout);
+        } else {
+            log::warning!("Error when computing checksum of action {step_id}: {stderr}");
+        }
+
+        if let Some(checksum) = maybe_checksum {
+            if let Some(current_action_checksum) =
+                cache::get_cache_action_checksum(step_id, cwd).await
+            {
+                if checksum.trim().to_string() != current_action_checksum {
+                    log::info!(
+                        "Checksum change from {} to {}",
+                        current_action_checksum,
+                        checksum.trim().to_string()
+                    );
+                    need_to_run_action = true;
+                }
+            }
+        }
+    }
+
+    // Compute action footprint
+    let action_footprint = compute_action_footprint(&step.plugin);
+    let register_footprint = get_registered_action_footprint(&step_id, cwd).await;
+    if register_footprint.is_none() || action_footprint != register_footprint.unwrap() {
+        need_to_run_action = true;
+    }
+
+    if need_to_run_action {
+        let has_error = plugin
+            .run(
+                cwd,
+                emakefile_current_path,
+                false,
+                &step.plugin,
+                &real_in_files,
+                &real_out_files,
+                &working_dir,
+                Some(&default_replacements),
+            )
+            .await;
+
+        if !has_error {
+            // Register footprint
+            register_action_footprint(&step_id, &action_footprint, cwd).await;
+
+            // Register files cache
+            for file in &real_files {
+                let file_absolute_path =
+                    String::from(get_absolute_file_path(cwd, *file).to_str().unwrap());
+                CACHE_TO_UPDATE.insert((file_absolute_path, String::from(step_id)));
+            }
+
+            // Compute checksum
+            if let Some(checksum_command) = &step.checksum {
+                let mut maybe_checksum: Option<String> = None;
+                let (status, stdout, stderr) = utils::run_command(
+                    checksum_command,
+                    Path::new(cwd),
+                    Path::new(emakefile_current_path),
+                    Some(&default_replacements),
+                );
+
+                if ExitStatus::success(&status) {
+                    maybe_checksum = Some(stdout);
+                } else {
+                    log::warning!("Error when computing checksum of action {step_id}: {stderr}");
                 }
 
-                cache::write_cache(cwd).await; // Only usefull if we call several time a target
-                log::info!("{}Action {} done successfully !", log::INDENT, step_id);
+                if let Some(checksum) = maybe_checksum {
+                    cache::write_cache_action_checksum(step_id, &checksum.trim().to_string(), cwd)
+                        .await
+                }
             }
-        } else {
-            log::info!(
-                "{}No need to run action {} because no input/output files changed",
-                log::INDENT,
-                step_id
-            );
+
+            cache::write_cache(cwd).await; // Only usefull if we call several time a target
+            log::info!("{}Action {} done successfully !", log::INDENT, step_id);
         }
+    } else {
+        log::info!(
+            "{}No need to run action {} because no input/output files changed",
+            log::INDENT,
+            step_id
+        );
     }
 }
 
@@ -440,7 +434,12 @@ pub fn run_target3<'a>(
         // println!("Run step {:?}", target);
         let mp = MULTI_PROGRESS.clone();
         let spinner = mp.add(ProgressBar::new_spinner());
-        spinner.set_message(style(format!("Running target {}...", target_absolute_path)).blue().bold().to_string());
+        spinner.set_message(
+            style(format!("Running target {}...", target_absolute_path))
+                .blue()
+                .bold()
+                .to_string(),
+        );
         spinner.enable_steady_tick(Duration::from_millis(SPINNER_TIME));
         if let Some(steps) = &target.steps {
             let mut steps_tasks: Vec<JoinHandle<()>> = Vec::new();
@@ -451,12 +450,19 @@ pub fn run_target3<'a>(
                 let cwd_clone = cwd.clone();
                 let step_clone = step.clone();
                 let emakefile_path = emakefile_path.to_string_lossy().to_string();
-                let handle: JoinHandle<()> = tokio::spawn(async move {
+                let fut = async move {
                     let m = get_mutex_for_id(&step_id).await;
                     let _guard = m.lock().await;
                     run_step(&step_id, &step_clone, &cwd_clone, &emakefile_path).await;
-                });
-                steps_tasks.push(handle);
+                };
+
+                if target.parallel.unwrap_or(false) {
+                    let handle: JoinHandle<()> = tokio::spawn(fut);
+                    steps_tasks.push(handle);
+                } else {
+                    fut.await;
+                    log::info!("NIQUER TAMER {:?}", target_absolute_path.clone() + "/" + step_index_string.as_str());
+                }
             }
 
             futures::future::join_all(steps_tasks).await;

@@ -1,11 +1,8 @@
-use futures::FutureExt;
 use serde::{Deserialize, Serialize};
-use serde_yml::Value;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap},
     future::Future,
     io::{BufRead, BufReader},
-    path::Path,
     pin::Pin,
     process::{Command, Stdio},
     sync::{Arc, Mutex},
@@ -14,7 +11,6 @@ use std::{
 use crate::{
     console::log,
     emake::{self, InFile, PluginAction},
-    graph::{self, Node},
 };
 
 use super::Action;

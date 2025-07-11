@@ -1,5 +1,5 @@
 use serde_yml;
-use crate::emake::{self, CredentialEntry, TargetEntry, VariableEntry};
+use crate::emake::{self, CredentialEntry, VariableEntry};
 use crate::console::log;
 use std::path::{Path, PathBuf};
 

@@ -72,5 +72,5 @@ async fn main() {
 
     cache::create_cache_dir(cwd.to_str().unwrap()).await;
     commands::run_command(&matches, &cwd).await;
-    cache::write_cache(cwd.to_str().unwrap()).await;
+    // cache::write_cache(cwd.to_str().unwrap()).await;
 }

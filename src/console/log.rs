@@ -12,7 +12,7 @@ macro_rules! info {
     // `()` indicates that the macro takes no argument.
     ($($arg:tt)*) => {
         // The macro will expand into the contents of this block.
-        // println!("\x1b[34m{}\x1b[0m", format!($($arg)*));
+        println!("\x1b[34m{}\x1b[0m", format!($($arg)*));
     };
 }
 
@@ -20,7 +20,7 @@ macro_rules! text {
     // `()` indicates that the macro takes no argument.
     ($($arg:tt)*) => {
         // The macro will expand into the contents of this block.
-        // println!("{}", format!($($arg)*));
+        println!("{}", format!($($arg)*));
     };
 }
 
@@ -28,7 +28,7 @@ macro_rules! success {
     // `()` indicates that the macro takes no argument.
     ($($arg:tt)*) => {
         // The macro will expand into the contents of this block.
-        // println!("\n\x1b[32m{} {}\x1b[0m", "🎉", format!($($arg)*));
+        println!("\n\x1b[32m{} {}\x1b[0m", "🎉", format!($($arg)*));
     };
 }
 
@@ -36,7 +36,7 @@ macro_rules! warning {
     // `()` indicates that the macro takes no argument.
     ($($arg:tt)*) => {
         // The macro will expand into the contents of this block.
-        // println!("\x1b[33m{}\x1b[0m", format!($($arg)*));
+        println!("\x1b[33m{}\x1b[0m", format!($($arg)*));
     };
 }
 macro_rules! error {
