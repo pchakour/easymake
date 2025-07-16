@@ -34,7 +34,8 @@ pub static GLOBAL_MUTEXES: Lazy<DashMap<String, Arc<Mutex<()>>>> = Lazy::new(Das
 pub static GLOBAL_SEMAPHORE: Lazy<Semaphore> = Lazy::new(|| Semaphore::new(15));
 pub static ACTIONS_STORE: Lazy<ActionsStore> = Lazy::new(|| actions::instanciate());
 pub static CREDENTIALS_STORE: Lazy<CredentialsStore> = Lazy::new(|| credentials::instanciate());
-pub static CACHE_TO_UPDATE: Lazy<DashSet<(String, String)>> = Lazy::new(DashSet::new);
+pub static CACHE_IN_FILE_TO_UPDATE: Lazy<DashSet<(String, String)>> = Lazy::new(DashSet::new);
+pub static CACHE_OUT_FILE_TO_UPDATE: Lazy<DashSet<(String, String)>> = Lazy::new(DashSet::new);
 pub static MULTI_PROGRESS: Lazy<Arc<MultiProgress>> = Lazy::new(|| Arc::new(MultiProgress::new()));
 
 pub async fn get_mutex_for_id(id: &str) -> Arc<Mutex<()>> {
@@ -72,5 +73,5 @@ async fn main() {
 
     cache::create_cache_dir(cwd.to_str().unwrap()).await;
     commands::run_command(&matches, &cwd).await;
-    // cache::write_cache(cwd.to_str().unwrap()).await;
+    cache::write_out_cache(cwd.to_str().unwrap()).await;
 }

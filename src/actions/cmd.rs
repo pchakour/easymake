@@ -41,6 +41,8 @@ impl Action for Cmd {
     fn run<'a>(
         &'a self,
         cwd: &'a str,
+        target_id: &'a str,
+        step_id: &'a str,
         emakefile_cwd: &'a str,
         silent: bool,
         action: &'a PluginAction,

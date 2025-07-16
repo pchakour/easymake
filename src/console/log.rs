@@ -2,9 +2,9 @@ pub const INDENT: &str = "   ";
 
 macro_rules! step {
     // `()` indicates that the macro takes no argument.
-    ($current_step:tt, $total_step:tt, $($arg:tt)*) => {
+    ($($arg:tt)*) => {
         // The macro will expand into the contents of this block.
-        // println!("\x1b[32m[{}/{}] {}\x1b[0m", $current_step, $total_step, format!($($arg)*));
+        println!("\x1b[32m{}\x1b[0m", format!($($arg)*));
     };
 }
 

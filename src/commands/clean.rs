@@ -21,7 +21,7 @@ pub async fn run(cwd: &Path) {
     let clean_commands = graph::analysor::get_clean_commands(cwd);
     let total_steps = clean_commands.len() + 1;
     let mut step = 1;
-    log::step!(step, total_steps, "Cleaning cache");
+    // log::step!(step, total_steps, "Cleaning cache");
     let mut path = PathBuf::from(cwd);
     path.push(CACHE_DIR);
     let _ = std::fs::remove_dir_all(path);
@@ -45,12 +45,12 @@ pub async fn run(cwd: &Path) {
             Some(&default_replacements),
         );
         step = step + 1;
-        log::step!(
-            step,
-            total_steps,
-            "Running clean command if action {}",
-            action_id
-        );
+        // log::step!(
+        //     step,
+        //     total_steps,
+        //     "Running clean command if action {}",
+        //     action_id
+        // );
 
         let mut shell = "sh";
         let mut arg = "-c";

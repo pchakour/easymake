@@ -3,13 +3,16 @@ use std::{
     collections::HashMap,
     future::Future,
     io::BufReader,
-    path::{Path, PathBuf},
+    path::{Path},
     pin::Pin,
 };
 use zip::ZipArchive;
 
 use crate::{
-    console::log,
+    console::{
+        log,
+        logger::{ActionProgressType, LogAction, Logger, ProgressStatus},
+    },
     emake::{self, InFile, PluginAction},
 };
 use flate2::read::GzDecoder;
@@ -23,20 +26,46 @@ pub static ID: &str = "extract";
 pub struct ExtractAction {
     from: String,
     to: String,
+    out_files: Option<Vec<String>>,
 }
 
 pub struct Extract;
 
-fn extract(archive_path: &str, output_dir: &str) -> Result<Vec<PathBuf>, Box<dyn std::error::Error>> {
+#[cfg(unix)]
+fn set_unix_permissions(file: &zip::read::ZipFile, outpath: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+
+    if let Some(mode) = file.unix_mode() {
+        std::fs::set_permissions(outpath, std::fs::Permissions::from_mode(mode)).unwrap();
+    }
+}
+
+fn extract(
+    target_id: &str,
+    step_id: &str,
+    archive_path: &str,
+    output_dir: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
     let path = Path::new(archive_path);
     let extension = path.extension().and_then(|s| s.to_str()).unwrap_or("");
     let file = std::fs::File::open(path)?;
-    let file = BufReader::new(file);
+    let file_buffer = BufReader::new(&file);
+    let action_id = String::from("EXTRACT") + archive_path;
 
-    let mut extracted_files = Vec::new();
+    Logger::set_action(
+        target_id.to_string(),
+        step_id.to_string(),
+        LogAction {
+            id: action_id.clone(), 
+            status: ProgressStatus::Progress,
+            description: String::from("Starting files extraction"),
+            progress: ActionProgressType::Spinner,
+            percent: None,
+        },
+    );
 
     if extension == "zip" {
-        let mut zip = ZipArchive::new(file)?;
+        let mut zip = ZipArchive::new(file_buffer)?;
         for i in 0..zip.len() {
             let mut file_in_zip = zip.by_index(i)?;
             let outpath = Path::new(output_dir).join(file_in_zip.name());
@@ -49,34 +78,64 @@ fn extract(archive_path: &str, output_dir: &str) -> Result<Vec<PathBuf>, Box<dyn
                 }
                 let mut outfile = std::fs::File::create(&outpath)?;
                 std::io::copy(&mut file_in_zip, &mut outfile)?;
-                extracted_files.push(outpath);
             }
+
+            #[cfg(unix)]
+            set_unix_permissions(&file_in_zip, &outpath);
         }
+        Ok(())
     } else if archive_path.ends_with(".tar.gz") {
-        let tar = GzDecoder::new(file);
+        // Extract
+        let tar = GzDecoder::new(file_buffer);
         let mut archive = TarArchive::new(tar);
-        archive.entries()?.filter_map(Result::ok).for_each(|mut entry| {
-            if let Ok(path) = entry.path() {
-                let full_path = Path::new(output_dir).join(&path);
-                let _ = entry.unpack(&full_path);
-                extracted_files.push(full_path);
-            }
-        });
+
+        for entry in archive.entries()? {
+            let mut entry = entry?;
+            Logger::set_action(
+                target_id.to_string(),
+                step_id.to_string(),
+                LogAction {
+                    id: action_id.clone(),
+                    status: ProgressStatus::Progress,
+                    description:format!(
+                        "Extracting file {}",
+                        entry.header().path().unwrap().to_string_lossy().to_string()
+                    ),
+                    progress: ActionProgressType::Spinner,
+                    percent: None,
+                },
+            );
+            entry.unpack_in(output_dir)?;
+        }
+
+        Logger::set_action(
+            target_id.to_string(),
+            step_id.to_string(),
+            LogAction {
+                id: action_id.clone(),
+                status: ProgressStatus::Done,
+                description:format!(
+                    "Extraction of file {} is done",
+                    archive_path
+                ),
+                progress: ActionProgressType::Spinner,
+                percent: None,
+            },
+        );
+
+        Ok(())
     } else if archive_path.ends_with(".tar.xz") {
         let tar = XzDecoder::new(file);
         let mut archive = TarArchive::new(tar);
-        archive.entries()?.filter_map(Result::ok).for_each(|mut entry| {
-            if let Ok(path) = entry.path() {
-                let full_path = Path::new(output_dir).join(&path);
-                let _ = entry.unpack(&full_path);
-                extracted_files.push(full_path);
-            }
-        });
-    } else {
-        return Err(format!("Unsupported archive format: {}", archive_path).into());
-    }
+        for entry in archive.entries()? {
+            let mut entry = entry?;
+            entry.unpack_in(output_dir)?;
+        }
 
-    Ok(extracted_files)
+        Ok(())
+    } else {
+        Err(format!("Unsupported archive format: {}", archive_path).into())
+    }
 }
 
 fn compile<'a>(
@@ -137,23 +196,43 @@ fn compile<'a>(
 impl Action for Extract {
     fn insert_in_files<'a>(
         &'a self,
-        _action: &'a PluginAction,
-        _in_files: &'a mut Vec<InFile>,
+        action: &'a PluginAction,
+        in_files: &'a mut Vec<InFile>,
     ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
-        Box::pin(async move {})
+        Box::pin(async move {
+            match action {
+                PluginAction::Extract { extract } => {
+                    in_files.push(InFile::Simple(extract.from.clone()));
+                }
+                _ => {}
+            }
+        })
     }
 
     fn insert_out_files<'a>(
         &'a self,
-        _action: &'a PluginAction,
-        _out_files: &'a mut Vec<String>,
+        action: &'a PluginAction,
+        out_files: &'a mut Vec<String>,
     ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
-        Box::pin(async move {})
+        Box::pin(async move {
+            match action {
+                PluginAction::Extract { extract } => {
+                    if let Some(plugin_out_files) = &extract.out_files {
+                        for out_file in plugin_out_files {
+                            out_files.push(out_file.clone());
+                        }
+                    }
+                }
+                _ => {}
+            }
+        })
     }
 
     fn run<'a>(
         &'a self,
         cwd: &'a str,
+        target_id: &'a str,
+        step_id: &'a str,
         emakefile_cwd: &'a str,
         _silent: bool,
         action: &'a PluginAction,
@@ -173,15 +252,12 @@ impl Action for Extract {
                 maybe_replacements,
             );
 
-            if let Some((from, to)) = some_files {
-                match extract(&from, &to) {
-                    Ok(extracted_files) => {
-                        println!("✅ Extraction complete!");
-                        println!("{:?}", extracted_files);
+            if let Some((_from, to)) = some_files {
+                match extract(target_id, step_id, &in_files[0], &to) {
+                    Ok(()) => {
                         has_error = false;
                     }
                     Err(e) => {
-                        log::error!("❌ Extraction failed: {}", e);
                         has_error = true;
                     }
                 }

@@ -3,7 +3,7 @@ use std::{
     process, time::SystemTime,
 };
 
-use crate::{console::log, utils::get_absolute_file_path, CACHE_TO_UPDATE};
+use crate::{console::log, utils::get_absolute_file_path, CACHE_IN_FILE_TO_UPDATE, CACHE_OUT_FILE_TO_UPDATE};
 
 const CACHE_DIR: &str = ".emake/cache";
 const WORKING_DIR: &str = ".emake/workspace";
@@ -27,17 +27,47 @@ pub async fn create_cache_dir(cwd: &str) {
     create_dir(cwd, FOOTPRINTS_DIR).await;
 }
 
-pub async fn write_cache(cwd: &str) {
+pub async fn write_in_cache(cwd: &str) {
     // Now remove and collect owned JoinHandles
-    let cache_to_update: Vec<(String, String)> = CACHE_TO_UPDATE
+    let cache_in_file_to_update: Vec<(String, String)> = CACHE_IN_FILE_TO_UPDATE
         .iter()
         .map(|entry| entry.key().clone())
         .collect::<Vec<_>>();
 
-    for (file_absolute_path, action_id) in &cache_to_update {
+    write_file_cache(&cache_in_file_to_update, &true, cwd).await;
+}
+
+pub async fn write_out_cache(cwd: &str) {
+    let cache_out_file_to_update: Vec<(String, String)> = CACHE_OUT_FILE_TO_UPDATE
+        .iter()
+        .map(|entry| entry.key().clone())
+        .collect::<Vec<_>>();
+
+    write_file_cache(&cache_out_file_to_update, &false, cwd).await;
+}
+
+pub async fn write_cache(cwd: &str) {
+    // Now remove and collect owned JoinHandles
+    let cache_in_file_to_update: Vec<(String, String)> = CACHE_IN_FILE_TO_UPDATE
+        .iter()
+        .map(|entry| entry.key().clone())
+        .collect::<Vec<_>>();
+
+    write_file_cache(&cache_in_file_to_update, &true, cwd).await;
+
+    let cache_out_file_to_update: Vec<(String, String)> = CACHE_OUT_FILE_TO_UPDATE
+        .iter()
+        .map(|entry| entry.key().clone())
+        .collect::<Vec<_>>();
+
+    write_file_cache(&cache_out_file_to_update, &false, cwd).await;
+}
+
+async fn write_file_cache(files: &Vec<(String, String)>, ignore_not_exists: &bool, cwd: &str) {
+    for (file_absolute_path, action_id) in files {
         if let Ok(file_exists) = tokio::fs::try_exists(&file_absolute_path).await {
             if file_exists {
-                if has_file_changed(cwd, file_absolute_path, action_id).await {
+                if has_file_changed(cwd, file_absolute_path, action_id, ignore_not_exists).await {
                     let maybe_current_time = get_file_modification_time(&file_absolute_path).await;
 
                     if let Some(current_time) = maybe_current_time {
@@ -48,7 +78,11 @@ pub async fn write_cache(cwd: &str) {
             } else {
                 let current_time = format!("{:?}", SystemTime::now()).replace(" ", "");
                 write_file_in_cache(cwd, file_absolute_path, action_id, &current_time).await;
-                log::warning!("You try to cache a file that doesn't exist. Check your input/output, the file is {}", file_absolute_path);
+
+                if !ignore_not_exists {
+                    log::error!("You try to cache a file that doesn't exist. Check your input/output, the file is {}", file_absolute_path);
+                    std::process::exit(1);
+                }
             }
         }
     }
@@ -193,11 +227,12 @@ pub async fn write_cache_action_checksum(action_id: &str, checksum: &str, cwd: &
     }
 }
 
-pub async fn has_file_changed(cwd: &str, file: &str, action_id: &str) -> bool {
-    let mut file_changed = true;
+pub async fn has_file_changed(cwd: &str, file: &str, action_id: &str, ignore_not_exists: &bool) -> bool {
+    let mut file_changed = !ignore_not_exists;
     let file_absolute_path = String::from(get_absolute_file_path(cwd, file).to_str().unwrap_or(""));
 
     if let Some(modification_date) = get_file_modification_time(&file_absolute_path).await {
+        file_changed = true;
         let cache_file = get_file_cache(cwd, &file_absolute_path);
         if let Ok(cache_file_exists) = tokio::fs::try_exists(&cache_file).await {
             if cache_file_exists {
