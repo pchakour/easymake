@@ -9,6 +9,7 @@ mod utils;
 mod errors;
 
 use clap::{arg, Command, Parser};
+use ::console::style;
 use indicatif::MultiProgress;
 use std::{env, fs, path::Path, sync::Arc};
 
@@ -28,7 +29,7 @@ use tokio::{
     sync::{Mutex, Semaphore},
 };
 
-use crate::{actions::ActionsStore, credentials::CredentialsStore};
+use crate::{actions::ActionsStore, console::log, credentials::CredentialsStore};
 
 pub static GLOBAL_MUTEXES: Lazy<DashMap<String, Arc<Mutex<()>>>> = Lazy::new(DashMap::new);
 pub static GLOBAL_SEMAPHORE: Lazy<Semaphore> = Lazy::new(|| Semaphore::new(15));
@@ -70,6 +71,8 @@ async fn main() {
     if let Some(custom_cwd) = matches.get_one::<String>("cwd") {
         cwd = Path::new(&fs::canonicalize(&custom_cwd).unwrap().to_str().unwrap()).to_path_buf();
     }
+
+    log::text!("{}", style("=============== Emake project under GPLv3 Licence ================").magenta());
 
     cache::create_cache_dir(cwd.to_str().unwrap()).await;
     commands::run_command(&matches, &cwd).await;

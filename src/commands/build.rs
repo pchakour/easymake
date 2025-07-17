@@ -21,7 +21,7 @@ pub async fn run(target: &String, silent: &bool, cwd: &Path, find_root: bool) {
     let handle = thread::spawn(|| {
         while LOGGER_RUNNING.load(Ordering::SeqCst) {
             Logger::write();
-            thread::sleep(Duration::from_millis(100));
+            thread::sleep(Duration::from_millis(150));
         }
         Logger::write();
     });

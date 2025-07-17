@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{HashMap},
+    collections::HashMap,
     future::Future,
     io::{BufRead, BufReader},
     pin::Pin,
@@ -9,7 +9,10 @@ use std::{
 };
 
 use crate::{
-    console::log,
+    console::{
+        log,
+        logger::{ActionProgressType, LogAction, Logger, ProgressStatus},
+    },
     emake::{self, InFile, PluginAction},
 };
 
@@ -84,7 +87,24 @@ impl Action for Cmd {
                         &emakefile_cwd.to_string(),
                         Some(&replacements),
                     );
-                    log::text!("Run command {:?}", command);
+
+                    let action_id = String::from(target_id)
+                        + step_id
+                        + ID
+                        + in_files.join(";").as_str()
+                        + out_files.join(";").as_str();
+
+                    Logger::set_action(
+                        target_id.to_string(),
+                        step_id.to_string(),
+                        LogAction {
+                            id: action_id.clone(),
+                            status: ProgressStatus::Progress,
+                            description: format!("Running command {:?}", command),
+                            progress: ActionProgressType::Spinner,
+                            percent: None,
+                        },
+                    );
 
                     let mut shell = "sh";
                     let mut arg = "-c";
@@ -97,7 +117,7 @@ impl Action for Cmd {
                     let mut output = Command::new(shell)
                         .current_dir(cwd)
                         .arg(arg) // Pass the command string to the shell
-                        .arg(command)
+                        .arg(&command)
                         .stdout(Stdio::piped())
                         .stderr(Stdio::piped())
                         .spawn()
@@ -146,10 +166,36 @@ impl Action for Cmd {
                     let status = output.wait().expect("Failed to wait on child");
 
                     if !status.success() {
-                        log::error!("Command return an error status {}", status.code().unwrap());
-                        log::error!("{}", stderr_buffer.lock().unwrap());
+                        Logger::set_action(
+                            target_id.to_string(),
+                            step_id.to_string(),
+                            LogAction {
+                                id: action_id.clone(),
+                                status: ProgressStatus::Failed,
+                                description: format!(
+                                    "Command {} return an error status {}\n Output: {}",
+                                    command,
+                                    status.code().unwrap(),
+                                    stderr_buffer.lock().unwrap()
+                                ),
+                                progress: ActionProgressType::Spinner,
+                                percent: None,
+                            },
+                        );
                         return true;
                     }
+
+                    Logger::set_action(
+                        target_id.to_string(),
+                        step_id.to_string(),
+                        LogAction {
+                            id: action_id.clone(),
+                            status: ProgressStatus::Done,
+                            description: format!("Running command {:?}", command),
+                            progress: ActionProgressType::Spinner,
+                            percent: None,
+                        },
+                    );
 
                     return false;
                 }

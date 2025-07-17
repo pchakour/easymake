@@ -1,13 +1,11 @@
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::{HashMap},
-    future::Future,
-    path::{PathBuf},
-    pin::Pin,
-};
+use std::{collections::HashMap, future::Future, path::PathBuf, pin::Pin};
 
 use crate::{
-    console::log,
+    console::{
+        log,
+        logger::{ActionProgressType, LogAction, Logger, ProgressStatus},
+    },
     emake::{InFile, PluginAction},
     GLOBAL_SEMAPHORE,
 };
@@ -84,10 +82,30 @@ impl Action for Copy {
                 if to.len() > index {
                     destination = &to[index];
                 }
+                let action_id = String::from(target_id) + step_id + ID + from + destination;
+
+                let action_description = format!("Copying file {} to {}", from, destination);
+
+                Logger::set_action(
+                    target_id.to_string(),
+                    step_id.to_string(),
+                    LogAction {
+                        id: action_id.clone(),
+                        status: ProgressStatus::Progress,
+                        description: action_description.clone(),
+                        progress: ActionProgressType::Spinner,
+                        percent: None,
+                    },
+                );
 
                 let src_owned = from.clone();
                 let dest_owned = destination.clone();
+                let action_id_clone = action_id.clone();
+                let target_id_clone = target_id.to_string();
+                let step_id_clone = step_id.to_string();
+                let action_description_clone = action_description.clone();
                 let _s = GLOBAL_SEMAPHORE.acquire().await;
+
                 handles.push(tokio::spawn(async move {
                     let mut dest_path = PathBuf::from(&dest_owned);
                     let src_path = PathBuf::from(&src_owned);
@@ -102,15 +120,43 @@ impl Action for Copy {
                     }
 
                     let error = format!("Can't copy from {} to {}", src_owned, dest_owned);
-                    tokio::fs::copy(src_path, dest_path).await.expect(&error);
+                    let copy_result = tokio::fs::copy(src_path, dest_path).await;
+
+                    if copy_result.is_err() {
+                        Logger::set_action(
+                            target_id_clone,
+                            step_id_clone,
+                            LogAction {
+                                id: action_id_clone.clone(),
+                                status: ProgressStatus::Failed,
+                                description: error,
+                                progress: ActionProgressType::Spinner,
+                                percent: None,
+                            },
+                        );
+                    } else {
+                        Logger::set_action(
+                            target_id_clone,
+                            step_id_clone,
+                            LogAction {
+                                id: action_id_clone.clone(),
+                                status: ProgressStatus::Done,
+                                description: action_description_clone,
+                                progress: ActionProgressType::Spinner,
+                                percent: None,
+                            },
+                        );  
+                    }
+
+                    copy_result
                 }));
             }
 
             let results = futures::future::join_all(handles).await;
             for result in results {
-                if let Err(e) = result {
-                    log::error!("{:?}", e);
+                if result.is_err() {
                     has_error = true;
+                    break;
                 }
             }
 

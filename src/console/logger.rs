@@ -1,19 +1,16 @@
 use std::{
     io::{stdout, Write},
     sync::{
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
         Mutex,
     },
     thread::sleep,
     time::Duration,
 };
 
-use console::style;
+use console::{style, truncate_str};
 use crossterm::{
-    cursor::{MoveToColumn, MoveUp, RestorePosition, SavePosition},
-    execute,
-    style::Print,
-    terminal::{Clear, ClearType},
+    cursor::{MoveDown, MoveToColumn, MoveUp, RestorePosition, SavePosition}, execute, queue, style::Print, terminal::{Clear, ClearType}
 };
 use dashmap::DashMap;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
@@ -21,7 +18,7 @@ use once_cell::sync::Lazy;
 use terminal_size::{terminal_size, Width};
 use textwrap::wrap;
 
-use crate::console::log;
+use crate::{actions::mv::Move, console::log};
 
 type TargetId = String;
 type StepId = String;
@@ -34,6 +31,7 @@ pub enum ProgressStatus {
     Done,
     Progress,
     Failed,
+    Skipped,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -53,7 +51,7 @@ pub struct LogAction {
 
 pub struct LogStep {
     pub id: String,
-    pub description: Option<String>,
+    pub description: String,
     pub actions: Vec<LogAction>,
     pub status: ProgressStatus,
 }
@@ -65,16 +63,11 @@ pub struct LogTarget {
     pub status: ProgressStatus,
 }
 
-enum LogType {
-    Step,
-    Target,
-    Action,
-}
-
 static GLOBAL_OUTPUT: Lazy<Mutex<Vec<LogTarget>>> = Lazy::new(|| Mutex::new(Vec::new()));
 static GLOBAL_ITERATIONS: Lazy<DashMap<String, usize>> = Lazy::new(DashMap::new);
 static PRINTED_LINES: Lazy<AtomicUsize> = Lazy::new(|| AtomicUsize::new(0));
 const SPINNER: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+static BUFFER_OUTPUT: Lazy<Mutex<Vec<String>>> = Lazy::new(|| Mutex::new(Vec::new()));
 
 pub struct Logger;
 
@@ -84,35 +77,65 @@ fn get_terminal_width() -> usize {
         .unwrap_or(80)
 }
 
-fn log_line(log_type: LogType, text: &str) -> usize {
+fn log_line(text: &str, buffer: &mut Vec<String>) {
     let width = get_terminal_width();
-    let wrapped_lines = wrap(text, width);
+    let truncated_line = truncate_str(text, width, "...").to_string();
+    buffer.push(truncated_line);
+}
 
-    match log_type {
-        LogType::Step => {
-            for line in &wrapped_lines {
-                log::step!("{}", line);
+fn flush_output(stdout: &mut std::io::Stdout, buffer: &Vec<String>) {
+    let mut previous_buffer = BUFFER_OUTPUT.lock().unwrap();
+
+    // Move up to the top to start drawing
+    if !previous_buffer.is_empty() {
+        queue!(stdout, MoveUp(previous_buffer.len() as u16)).unwrap();
+    }
+
+    for (index, line) in buffer.iter().enumerate() {
+        queue!(stdout, MoveToColumn(0)).unwrap();
+
+        if previous_buffer.len() > index {
+            if previous_buffer[index] != *line {
+                queue!(stdout, Clear(ClearType::CurrentLine)).unwrap();
+                queue!(stdout, Print(format!("{}\n", line))).unwrap();
+                previous_buffer[index] = line.to_owned();
+            } else {
+                // Skip writing unchanged line but still move to next line
+                queue!(stdout, MoveDown(1)).unwrap();
             }
-        }
-        LogType::Target => {
-            for line in &wrapped_lines {
-                log::info!("{}", line);
-            }
-        }
-        LogType::Action => {
-            for line in &wrapped_lines {
-                log::text!("{}", line);
-            }
+        } else {
+            // New line
+            queue!(stdout, Print(format!("{}\n", line))).unwrap();
+            previous_buffer.push(line.to_owned());
         }
     }
 
-    wrapped_lines.len()
+    // Trim lines if new buffer is shorter
+    if previous_buffer.len() > buffer.len() {
+        for _ in buffer.len()..previous_buffer.len() {
+            queue!(stdout, MoveToColumn(0)).unwrap();
+            queue!(stdout, Clear(ClearType::CurrentLine)).unwrap();
+            queue!(stdout, MoveDown(1)).unwrap();
+        }
+        previous_buffer.truncate(buffer.len());
+    }
+
+    stdout.flush().unwrap();
 }
 
 impl Logger {
     pub fn set_target(log_target: LogTarget) {
-        let mut guard = GLOBAL_OUTPUT.lock().unwrap();
-        guard.push(log_target);
+        let mut output = GLOBAL_OUTPUT.lock().unwrap();
+
+        match output.iter_mut().find(|target| target.id == log_target.id) {
+            Some(target) => {
+                target.description = log_target.description;
+                target.status = log_target.status;
+            }
+            None => {
+                output.push(log_target);
+            }
+        }
     }
 
     pub fn set_step(target_id: TargetId, log_step: LogStep) {
@@ -123,7 +146,14 @@ impl Logger {
             .find(|item| item.id == target_id)
         {
             Some(target) => {
-                target.steps.push(log_step);
+                match target.steps.iter_mut().find(|step| step.id == log_step.id) {
+                    Some(step) => {
+                        // Copy step
+                        step.description = log_step.description;
+                        step.status = log_step.status;
+                    }
+                    None => target.steps.push(log_step),
+                };
             }
             None => {
                 log::error!(
@@ -178,30 +208,51 @@ impl Logger {
     pub fn write() {
         let mut stdout = std::io::stdout();
         let mut lines_number = PRINTED_LINES.load(Ordering::SeqCst);
-
-        if lines_number > 0 {
-            execute!(stdout, MoveUp(lines_number as u16)).unwrap();
-        }
-
-        execute!(stdout, Clear(ClearType::FromCursorDown)).unwrap();
+        let mut buffer = Vec::new();
         lines_number = 0;
 
         for target in GLOBAL_OUTPUT.lock().unwrap().iter_mut() {
-            let log_target = format!("Building target {}", target.id);
-            lines_number += log_line(LogType::Target, &log_target);
+            let log_target = style(format!("Building target {}", target.id)).blue().bold().to_string();
+            lines_number += 1;
+            log_line(&log_target, &mut buffer);
 
             for step in target.steps.iter_mut() {
-                let step_log = format!(
-                    "  Running step {}",
-                    step.description.clone().unwrap_or(step.id.clone())
-                );
-                lines_number += log_line(LogType::Step, &step_log);
+                if step.status == ProgressStatus::Skipped {
+                    let log_action =
+                        format!("  {} {}", style("✔").black().bold(), style(&step.description).black());
+                    lines_number += 1;
+                    log_line(&log_action, &mut buffer);
+                } else {
+                    let step_log = format!(
+                        "  {}",
+                        style(&step.description).green()
+                    );
+                    lines_number += 1;
+                    log_line(&step_log, &mut buffer);
+                }
 
                 for action in step.actions.iter_mut() {
                     if action.status == ProgressStatus::Done {
                         let log_action =
                             format!("    {} {}", style("✔").green().bold(), action.description);
-                        lines_number += log_line(LogType::Action, &log_action);
+                        lines_number += 1;
+                        log_line(&log_action, &mut buffer);
+                    } else if action.status == ProgressStatus::Skipped {
+                        let log_action = format!(
+                            "    {} {}",
+                            style("✔").magenta().bold(),
+                            style(&action.description).magenta()
+                        );
+                        lines_number += 1;
+                        log_line(&log_action, &mut buffer);
+                    } else if action.status == ProgressStatus::Failed {
+                        let log_action = format!(
+                            "    {} {}",
+                            style("❌").red().bold(),
+                            style(&action.description).red()
+                        );
+                        lines_number += 1;
+                        log_line(&log_action, &mut buffer);
                     } else if action.progress == ActionProgressType::Spinner {
                         let iteration_action_id =
                             target.id.clone() + step.id.as_str() + action.id.as_str();
@@ -215,7 +266,8 @@ impl Logger {
                                 SPINNER[i % SPINNER.len()],
                                 action.description
                             );
-                            lines_number += log_line(LogType::Action, &log_action);
+                            lines_number += 1;
+                            log_line(&log_action, &mut buffer);
 
                             GLOBAL_ITERATIONS.insert(iteration_action_id, i + 1);
                         }
@@ -225,10 +277,13 @@ impl Logger {
 
                         let mut filled = percent * bar_width / 100;
                         if filled > 0 {
-                            filled -= 1;
+                            filled -= 1; // Leave space for > symbol
                         }
 
-                        let empty = bar_width - filled;
+                        let mut empty = 0;
+                        if bar_width >= filled {
+                            empty = bar_width - filled;
+                        }
 
                         let bar = format!(
                             "{}{}{}",
@@ -238,16 +293,18 @@ impl Logger {
                         );
                         let log_action =
                             format!("    [{}] {:>3}% {}", bar, percent, action.description);
-                        lines_number += log_line(LogType::Action, &log_action);
+                        lines_number += 1;
+                        log_line(&log_action, &mut buffer);
                     } else {
                         let log_action = format!("    {}", action.description);
-                        lines_number += log_line(LogType::Action, &log_action);
+                        lines_number += 1;
+                        log_line(&log_action, &mut buffer);
                     }
                 }
             }
         }
 
+        flush_output(&mut stdout, &buffer);
         PRINTED_LINES.store(lines_number, Ordering::SeqCst);
-        stdout.flush().unwrap();
     }
 }

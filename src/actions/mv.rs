@@ -105,7 +105,7 @@ impl Action for Move {
                         LogAction {
                             id: action_id.clone(),
                             status: ProgressStatus::Progress,
-                            description: format!("Copying file {}", process_info.file_name),
+                            description: format!("Copying file {}", process_info.dir_name),
                             progress: ActionProgressType::Bar,
                             percent: Some(if process_info.total_bytes > 0 {
                                 ((process_info.copied_bytes * 100) / process_info.total_bytes)

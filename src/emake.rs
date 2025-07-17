@@ -43,7 +43,7 @@ pub struct Step {
     #[serde(default)]
     pub clean: Option<String>,
     #[serde(default)]
-    pub description: Option<String>,
+    pub description: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

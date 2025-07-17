@@ -183,7 +183,7 @@ async fn get_real_in_files<'a>(
 ) -> Vec<String> {
     let plugin = ACTIONS_STORE.get(&step.plugin).expect(&format!(
         "Can't execute step \"{}\", we are not able to find the plugin used in this step",
-        step.description.clone().unwrap_or(step_id.to_string())
+        step.description.clone()
     ));
 
     let mut in_files;
@@ -206,6 +206,7 @@ async fn get_real_in_files<'a>(
 
     let mut download_futures = Vec::new();
     let mut downloadable_files_indices = HashMap::new();
+    let mut downloaded_files = Vec::new();
 
     // Get in files modification date
     for in_file in &in_files {
@@ -243,6 +244,7 @@ async fn get_real_in_files<'a>(
                 let output_string = output.to_str().unwrap().to_string();
                 downloadable_files_indices.insert(file.clone(), output_string.clone());
                 if cache::has_file_changed(cwd, &output_string, step_id, &false).await {
+                    downloaded_files.push(file.clone());
                     let file_clone = file.clone(); // required if file is &String
                     let target_id_clone = String::from(target_id);
                     let step_id_clone = String::from(step_id);
@@ -272,11 +274,31 @@ async fn get_real_in_files<'a>(
     let download_results = join_all(download_futures).await;
 
     // Check for errors
-    for result in download_results {
+    for (index, result) in download_results.into_iter().enumerate() {
         if let Err(err) = result {
-            log::error!("Download task panicked: {:?}", err);
+            Logger::set_action(
+                target_id.to_string(),
+                step_id.to_string(),
+                LogAction {
+                    id: String::from("DOWNLOADING_FILE_") + &downloaded_files[index],
+                    description: format!("Download task panicked: {:?}", err),
+                    status: ProgressStatus::Failed,
+                    progress: ActionProgressType::Bar,
+                    percent: Some(0),
+                },
+            );
         } else if let Err(err) = result.unwrap() {
-            log::error!("Download failed: {:?}", err);
+            Logger::set_action(
+                target_id.to_string(),
+                step_id.to_string(),
+                LogAction {
+                    id: String::from("DOWNLOADING_FILE_") + &downloaded_files[index],
+                    description: format!("Download task panicked: {:?}", err),
+                    status: ProgressStatus::Failed,
+                    progress: ActionProgressType::Bar,
+                    percent: Some(0),
+                },
+            );
         }
     }
 
@@ -305,7 +327,7 @@ async fn get_real_out_files<'a>(
 ) -> Vec<String> {
     let plugin = ACTIONS_STORE.get(&step.plugin).expect(&format!(
         "Can't execute step \"{}\", we are not able to find the plugin used in this step",
-        step.description.clone().unwrap_or(step_id.to_string())
+        step.description.clone()
     ));
 
     let mut out_files;
@@ -358,14 +380,14 @@ async fn run_step<'a>(
 ) {
     let plugin = ACTIONS_STORE.get(&step.plugin).expect(&format!(
         "Can't execute step \"{}\", we are not able to find the plugin used in this step",
-        step.description.clone().unwrap_or(step_id.to_string())
+        step.description.clone()
     ));
-    let step_description = step.description.clone().unwrap_or(step_id.to_string());
+    let step_description = step.description.clone();
     Logger::set_step(
         target_id.to_string(),
         LogStep {
             id: step_id.to_string(),
-            description: Some(step_description),
+            description: step_description.clone(),
             actions: Vec::new(),
             status: ProgressStatus::Progress,
         },
@@ -378,7 +400,8 @@ async fn run_step<'a>(
         (String::from("EMAKE_CWD_DIR"), cwd.to_owned()),
         (String::from("EMAKE_OUT_DIR"), out_dir.to_owned()),
     ]);
-    let real_in_files = get_real_in_files(target_id, step_id, step, cwd, emakefile_current_path).await;
+    let real_in_files =
+        get_real_in_files(target_id, step_id, step, cwd, emakefile_current_path).await;
     let plugin_out_files = get_real_out_files(step_id, step, cwd, emakefile_current_path).await;
     let mut real_out_files = plugin_out_files.clone();
     if force_out_files.is_some() {
@@ -391,13 +414,17 @@ async fn run_step<'a>(
         let file_changed = cache::has_file_changed(cwd, file, step_id, &true).await;
         if file_changed {
             need_to_run_action = true;
+            break;
         }
     }
 
-    for file in &real_out_files {
-        let file_changed = cache::has_file_changed(cwd, file, step_id, &false).await;
-        if file_changed {
-            need_to_run_action = true;
+    if !need_to_run_action {
+        for file in &real_out_files {
+            let file_changed = cache::has_file_changed(cwd, file, step_id, &false).await;
+            if file_changed {
+                need_to_run_action = true;
+                break;
+            }
         }
     }
 
@@ -497,11 +524,15 @@ async fn run_step<'a>(
             cache::write_in_cache(cwd).await; // Only usefull if we call several time a target
         }
     } else {
-        log::info!(
-            "{}No need to run action {} because no input/output files changed",
-            log::INDENT,
-            step_id
-        );
+        Logger::set_step(
+        target_id.to_string(),
+        LogStep {
+            id: step_id.to_string(),
+            description: format!("No need to run again {}", step_description.clone()),
+            actions: Vec::new(),
+            status: ProgressStatus::Skipped,
+        },
+    );
     }
 }
 
@@ -510,6 +541,9 @@ pub fn run_target<'a>(
     cwd: String,
 ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
     Box::pin(async move {
+        let target_mutex = get_mutex_for_id(&target_absolute_path).await;
+        let _guard_target = target_mutex.lock().await;
+
         let emakefile_path = to_emakefile_path(&target_absolute_path, &cwd);
         let emakefile = emake::loader::load_file(&emakefile_path.to_string_lossy().to_string());
         let target_info = extract_info_from_path(
@@ -540,7 +574,7 @@ pub fn run_target<'a>(
             // Await all dependency tasks
             futures::future::join_all(dependencies_tasks).await;
         }
-    
+
         Logger::set_target(LogTarget {
             id: target_absolute_path.clone(),
             description: None,
@@ -626,6 +660,7 @@ pub fn run_target<'a>(
             }
 
             futures::future::join_all(steps_tasks).await;
+            cache::write_out_cache(&cwd).await; // Only usefull if we call several time a target
         }
     })
 }
