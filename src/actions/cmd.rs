@@ -134,10 +134,7 @@ impl Action for Cmd {
                         std::thread::spawn(move || {
                             for line in stdout_reader.lines() {
                                 if let Ok(text) = line {
-                                    if false {
-                                        // if !silent {
-                                        log::text!("{}{}", log::INDENT, text);
-                                    }
+                                    // log::text!("{}{}", log::INDENT, text);
                                 }
                             }
                         });
@@ -150,13 +147,9 @@ impl Action for Cmd {
                     let stderr_thread = std::thread::spawn(move || {
                         for line in stderr_reader.lines() {
                             if let Ok(text) = line {
-                                if silent {
-                                    let mut buffer = stderr_buffer_clone.lock().unwrap(); // Lock before modifying
-                                    buffer.push_str(&text);
-                                    buffer.push('\n');
-                                } else {
-                                    log::error!("{}{}", log::INDENT, text);
-                                }
+                                let mut buffer = stderr_buffer_clone.lock().unwrap(); // Lock before modifying
+                                buffer.push_str(&text);
+                                buffer.push('\n');
                             }
                         }
                     });
@@ -176,7 +169,7 @@ impl Action for Cmd {
                                     "Command {} return an error status {}\n Output: {}",
                                     command,
                                     status.code().unwrap(),
-                                    stderr_buffer.lock().unwrap()
+                                    *stderr_buffer.lock().unwrap()
                                 ),
                                 progress: ActionProgressType::Spinner,
                                 percent: None,

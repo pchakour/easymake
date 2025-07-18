@@ -528,7 +528,7 @@ async fn run_step<'a>(
         target_id.to_string(),
         LogStep {
             id: step_id.to_string(),
-            description: format!("No need to run again {}", step_description.clone()),
+            description: step_description.clone(),
             actions: Vec::new(),
             status: ProgressStatus::Skipped,
         },
@@ -660,7 +660,7 @@ pub fn run_target<'a>(
             }
 
             futures::future::join_all(steps_tasks).await;
-            cache::write_out_cache(&cwd).await; // Only usefull if we call several time a target
+            // cache::write_out_cache(&cwd).await; // Only usefull if we call several time a target
         }
     })
 }
