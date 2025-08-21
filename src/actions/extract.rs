@@ -1,10 +1,12 @@
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
+    fs,
     future::Future,
     io::BufReader,
-    path::{Path},
+    path::Path,
     pin::Pin,
+    sync::{Arc, Mutex},
 };
 use zip::ZipArchive;
 
@@ -16,6 +18,8 @@ use crate::{
     emake::{self, InFile, PluginAction},
 };
 use flate2::read::GzDecoder;
+use rayon::prelude::*;
+use std::io;
 use tar::Archive as TarArchive;
 use xz2::read::XzDecoder;
 
@@ -40,6 +44,39 @@ fn set_unix_permissions(file: &zip::read::ZipFile, outpath: &Path) {
     }
 }
 
+fn extract_zip_multithreaded(file: &std::fs::File, output_dir: &str) -> io::Result<()> {
+    let file_buffer = BufReader::new(file);
+    let zip = ZipArchive::new(file_buffer)?;
+    let zip = Arc::new(Mutex::new(zip));
+
+    // Collect all indices first
+    let indices: Vec<usize> = (0..zip.lock().unwrap().len()).collect();
+
+    // Parallel extraction
+    indices.par_iter().try_for_each(|&i| {
+        let mut zip = zip.lock().unwrap();
+        let mut file_in_zip = zip
+            .by_index(i)
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+        let outpath = Path::new(output_dir).join(file_in_zip.name());
+
+        if file_in_zip.name().ends_with('/') {
+            fs::create_dir_all(&outpath)?;
+        } else {
+            if let Some(p) = outpath.parent() {
+                fs::create_dir_all(p)?;
+            }
+            let mut outfile = fs::File::create(&outpath)?;
+            io::copy(&mut file_in_zip, &mut outfile)?;
+        }
+
+        #[cfg(unix)]
+        set_unix_permissions(&file_in_zip, &outpath);
+
+        Ok(())
+    })
+}
+
 fn extract(
     target_id: &str,
     step_id: &str,
@@ -56,7 +93,7 @@ fn extract(
         target_id.to_string(),
         step_id.to_string(),
         LogAction {
-            id: action_id.clone(), 
+            id: action_id.clone(),
             status: ProgressStatus::Progress,
             description: String::from("Starting files extraction"),
             progress: ActionProgressType::Spinner,
@@ -65,24 +102,7 @@ fn extract(
     );
 
     if extension == "zip" {
-        let mut zip = ZipArchive::new(file_buffer)?;
-        for i in 0..zip.len() {
-            let mut file_in_zip = zip.by_index(i)?;
-            let outpath = Path::new(output_dir).join(file_in_zip.name());
-
-            if file_in_zip.name().ends_with('/') {
-                std::fs::create_dir_all(&outpath)?;
-            } else {
-                if let Some(p) = outpath.parent() {
-                    std::fs::create_dir_all(p)?;
-                }
-                let mut outfile = std::fs::File::create(&outpath)?;
-                std::io::copy(&mut file_in_zip, &mut outfile)?;
-            }
-
-            #[cfg(unix)]
-            set_unix_permissions(&file_in_zip, &outpath);
-        }
+        let _ = extract_zip_multithreaded(&file, output_dir);
         Ok(())
     } else if archive_path.ends_with(".tar.gz") {
         // Extract
@@ -97,7 +117,7 @@ fn extract(
                 LogAction {
                     id: action_id.clone(),
                     status: ProgressStatus::Progress,
-                    description:format!(
+                    description: format!(
                         "Extracting file {}",
                         entry.header().path().unwrap().to_string_lossy().to_string()
                     ),
@@ -114,10 +134,7 @@ fn extract(
             LogAction {
                 id: action_id.clone(),
                 status: ProgressStatus::Done,
-                description:format!(
-                    "Extraction of file {} is done",
-                    archive_path
-                ),
+                description: format!("Extraction of file {} is done", archive_path),
                 progress: ActionProgressType::Spinner,
                 percent: None,
             },
@@ -253,11 +270,15 @@ impl Action for Extract {
             );
 
             if let Some((_from, to)) = some_files {
+                if !fs::exists(&to).unwrap() {
+                    fs::create_dir_all(&to).unwrap();
+                }
+
                 match extract(target_id, step_id, &in_files[0], &to) {
                     Ok(()) => {
                         has_error = false;
                     }
-                    Err(e) => {
+                    Err(_) => {
                         has_error = true;
                     }
                 }

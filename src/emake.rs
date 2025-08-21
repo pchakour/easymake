@@ -1,8 +1,8 @@
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Serialize};
 use serde_yml::{Value};
 use std::collections::HashMap;
 
-use crate::actions::{cmd, copy, extract, mv};
+use crate::actions::{archive, cmd, copy, extract, mv, remove};
 
 pub mod loader;
 pub mod compiler;
@@ -56,6 +56,12 @@ pub enum PluginAction {
         #[serde(rename = "move")] 
         mv: mv::MoveAction
     },
+    Remove {
+        remove: remove::RemoveAction
+    },
+    Archive {
+        archive: archive::ArchiveAction
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

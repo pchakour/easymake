@@ -1,14 +1,49 @@
-use std::{path::{Path, PathBuf}, sync::Mutex, thread, time::Duration};
+use std::{
+    path::{Path, PathBuf},
+    sync::{atomic::{AtomicBool, Ordering}, Mutex},
+    thread::{self, JoinHandle},
+    time::Duration,
+};
 
 use crossterm::{cursor::SavePosition, execute};
-
-use crate::{cache, console::{log, logger::Logger}, emake, graph::{self, generator::get_absolute_target_path}};
-
-use std::sync::atomic::{AtomicBool, Ordering};
+use crate::{
+    cache,
+    console::{logger::Logger},
+    graph::{self, generator::get_absolute_target_path},
+};
+use crossbeam_channel::{bounded, Receiver};
 
 static LOGGER_RUNNING: AtomicBool = AtomicBool::new(true);
 
+lazy_static::lazy_static! {
+    static ref LOGGER_HANDLE: Mutex<Option<JoinHandle<()>>> = Mutex::new(None);
+}
+
+fn ctrl_channel() -> Result<Receiver<()>, ctrlc::Error> {
+    let (sender, receiver) = bounded(1);
+    ctrlc::set_handler(move || {
+        let _ = sender.send(());
+    })?;
+    Ok(receiver)
+}
+
 pub async fn run(target: &String, silent: &bool, cwd: &Path, find_root: bool) {
+    let ctrl_c_events = ctrl_channel().unwrap();
+
+    let cwd_string = cwd.to_string_lossy().to_string();
+    // Spawn ctrl+c handler in background thread
+    let _ = thread::spawn(async move || {
+        ctrl_c_events.recv().unwrap();
+        force_exit(&cwd_string, 1).await;
+    });
+
+    // run the main async task
+    main_task(target, cwd).await;
+
+    exit(cwd.to_str().unwrap(), 0).await;
+}
+
+async fn main_task(target: &String, cwd: &Path) {
     let mut build_file = PathBuf::from(cwd);
     build_file.push("Emakefile");
 
@@ -21,21 +56,31 @@ pub async fn run(target: &String, silent: &bool, cwd: &Path, find_root: bool) {
     let mut stdout = std::io::stdout();
     execute!(stdout, SavePosition).unwrap();
 
-    // Start the logger thread
     LOGGER_RUNNING.store(true, Ordering::SeqCst);
-    let handle = thread::spawn(|| {
+    let logger_thread = thread::spawn(|| {
         while LOGGER_RUNNING.load(Ordering::SeqCst) {
             Logger::write();
             thread::sleep(Duration::from_millis(150));
         }
-        Logger::close();
     });
 
-    // Run the actual task
-    graph::runner::run_target(target_path, cwd.to_string_lossy().to_string()).await;
-    cache::write_out_cache(cwd.to_str().unwrap()).await;
+    *LOGGER_HANDLE.lock().unwrap() = Some(logger_thread);
 
-    // Stop the logger thread
+    graph::runner::run_target(target_path, cwd.to_string_lossy().to_string()).await;
+}
+
+pub async fn exit(cwd: &str, code: i32) {
     LOGGER_RUNNING.store(false, Ordering::SeqCst);
-    handle.join().unwrap();
+    
+    if let Some(handle) = LOGGER_HANDLE.lock().unwrap().take() {
+        handle.join().unwrap();
+    }
+
+    Logger::close();
+    force_exit(cwd, code).await;
+}
+
+pub async fn force_exit(cwd: &str, code: i32) {
+    cache::write_cache(cwd).await;
+    std::process::exit(code);
 }

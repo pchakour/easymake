@@ -7,7 +7,6 @@ use crate::{
         logger::{ActionProgressType, LogAction, Logger, ProgressStatus},
     },
     emake::{InFile, PluginAction},
-    GLOBAL_SEMAPHORE,
 };
 
 use super::Action;
@@ -104,8 +103,7 @@ impl Action for Copy {
                 let target_id_clone = target_id.to_string();
                 let step_id_clone = step_id.to_string();
                 let action_description_clone = action_description.clone();
-                let _s = GLOBAL_SEMAPHORE.acquire().await;
-
+                
                 handles.push(tokio::spawn(async move {
                     let mut dest_path = PathBuf::from(&dest_owned);
                     let src_path = PathBuf::from(&src_owned);

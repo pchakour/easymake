@@ -3,7 +3,7 @@ use std::{collections::HashMap, path::{Path}};
 use glob::glob;
 use regex::Regex;
 
-use crate::{console::log, emake::{self, loader::{Target, TargetType}}, CREDENTIALS_STORE};
+use crate::{commands::build, console::log, emake::{self, loader::{Target, TargetType}}, CREDENTIALS_STORE};
 
 fn call_glob(cwd: &str, pattern: &String) -> Option<String> {
     let absolute_pattern = Path::new(cwd).join(pattern);

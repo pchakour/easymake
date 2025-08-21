@@ -27,25 +27,6 @@ pub async fn create_cache_dir(cwd: &str) {
     create_dir(cwd, FOOTPRINTS_DIR).await;
 }
 
-pub async fn write_in_cache(cwd: &str) {
-    // Now remove and collect owned JoinHandles
-    let cache_in_file_to_update: Vec<(String, String)> = CACHE_IN_FILE_TO_UPDATE
-        .iter()
-        .map(|entry| entry.key().clone())
-        .collect::<Vec<_>>();
-
-    write_file_cache(&cache_in_file_to_update, &true, cwd).await;
-}
-
-pub async fn write_out_cache(cwd: &str) {
-    let cache_out_file_to_update: Vec<(String, String)> = CACHE_OUT_FILE_TO_UPDATE
-        .iter()
-        .map(|entry| entry.key().clone())
-        .collect::<Vec<_>>();
-
-    write_file_cache(&cache_out_file_to_update, &false, cwd).await;
-}
-
 pub async fn write_cache(cwd: &str) {
     // Now remove and collect owned JoinHandles
     let cache_in_file_to_update: Vec<(String, String)> = CACHE_IN_FILE_TO_UPDATE

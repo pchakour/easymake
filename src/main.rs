@@ -32,7 +32,6 @@ use tokio::{
 use crate::{actions::ActionsStore, console::log, credentials::CredentialsStore};
 
 pub static GLOBAL_MUTEXES: Lazy<DashMap<String, Arc<Mutex<()>>>> = Lazy::new(DashMap::new);
-pub static GLOBAL_SEMAPHORE: Lazy<Semaphore> = Lazy::new(|| Semaphore::new(15));
 pub static ACTIONS_STORE: Lazy<ActionsStore> = Lazy::new(|| actions::instanciate());
 pub static CREDENTIALS_STORE: Lazy<CredentialsStore> = Lazy::new(|| credentials::instanciate());
 pub static CACHE_IN_FILE_TO_UPDATE: Lazy<DashSet<(String, String)>> = Lazy::new(DashSet::new);

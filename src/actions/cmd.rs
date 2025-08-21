@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     future::Future,
-    io::{BufRead, BufReader},
+    io::{BufRead, BufReader, Read},
     pin::Pin,
     process::{Command, Stdio},
     sync::{Arc, Mutex},
@@ -47,7 +47,7 @@ impl Action for Cmd {
         target_id: &'a str,
         step_id: &'a str,
         emakefile_cwd: &'a str,
-        silent: bool,
+        _silent: bool,
         action: &'a PluginAction,
         in_files: &'a Vec<String>,
         out_files: &'a Vec<String>,
@@ -55,144 +55,165 @@ impl Action for Cmd {
         maybe_replacements: Option<&'a HashMap<String, String>>,
     ) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>> {
         Box::pin(async move {
-            match action {
-                PluginAction::Cmd { cmd } => {
-                    // println!("Run command {:?}", args);
-                    let mut command = cmd.0.clone();
-                    let in_files_string = in_files.join(" ");
-                    let out_files_string = out_files.join("");
+            if let PluginAction::Cmd { cmd } = action {
+                let mut command = cmd.0.clone();
+                let in_files_string = in_files.join(" ");
+                let out_files_string = out_files.join(" ");
 
-                    let mut replacements: HashMap<String, String> = HashMap::from([
-                        (String::from("in_files"), in_files_string),
-                        (String::from("out_files"), out_files_string),
-                    ]);
+                let mut replacements = HashMap::from([
+                    ("in_files".into(), in_files_string),
+                    ("out_files".into(), out_files_string),
+                ]);
 
-                    for (index, in_file) in in_files.iter().enumerate() {
-                        let key = format!("in_files[{}]", index);
-                        replacements.insert(key, in_file.clone());
-                    }
-
-                    for (index, in_file) in out_files.iter().enumerate() {
-                        let key = format!("out_files[{}]", index);
-                        replacements.insert(key, in_file.clone());
-                    }
-
-                    if let Some(default_replacements) = maybe_replacements {
-                        replacements.extend(default_replacements.to_owned());
-                    }
-
-                    command = emake::compiler::compile(
-                        cwd,
-                        &command,
-                        &emakefile_cwd.to_string(),
-                        Some(&replacements),
-                    );
-
-                    let action_id = String::from(target_id)
-                        + step_id
-                        + ID
-                        + in_files.join(";").as_str()
-                        + out_files.join(";").as_str();
-
-                    Logger::set_action(
-                        target_id.to_string(),
-                        step_id.to_string(),
-                        LogAction {
-                            id: action_id.clone(),
-                            status: ProgressStatus::Progress,
-                            description: format!("Running command {:?}", command),
-                            progress: ActionProgressType::Spinner,
-                            percent: None,
-                        },
-                    );
-
-                    let mut shell = "sh";
-                    let mut arg = "-c";
-
-                    if cfg!(target_os = "windows") {
-                        shell = "cmd";
-                        arg = "/C";
-                    }
-
-                    let mut output = Command::new(shell)
-                        .current_dir(cwd)
-                        .arg(arg) // Pass the command string to the shell
-                        .arg(&command)
-                        .stdout(Stdio::piped())
-                        .stderr(Stdio::piped())
-                        .spawn()
-                        .expect("Failed to execute command");
-
-                    let stdout = output.stdout.take().unwrap();
-                    let stderr = output.stderr.take().unwrap();
-
-                    let stdout_reader = BufReader::new(stdout);
-                    let stderr_reader = BufReader::new(stderr);
-
-                    // Spawn threads to read both stdout and stderr
-                    let stdout_thread: std::thread::JoinHandle<()> =
-                        std::thread::spawn(move || {
-                            for line in stdout_reader.lines() {
-                                if let Ok(text) = line {
-                                    // log::text!("{}{}", log::INDENT, text);
-                                }
-                            }
-                        });
-
-                    stdout_thread.join().unwrap();
-
-                    let stderr_buffer = Arc::new(Mutex::new(String::new())); // Mutex allows safe mutation
-                    let stderr_buffer_clone = Arc::clone(&stderr_buffer);
-
-                    let stderr_thread = std::thread::spawn(move || {
-                        for line in stderr_reader.lines() {
-                            if let Ok(text) = line {
-                                let mut buffer = stderr_buffer_clone.lock().unwrap(); // Lock before modifying
-                                buffer.push_str(&text);
-                                buffer.push('\n');
-                            }
-                        }
-                    });
-
-                    stderr_thread.join().unwrap();
-
-                    let status = output.wait().expect("Failed to wait on child");
-
-                    if !status.success() {
-                        Logger::set_action(
-                            target_id.to_string(),
-                            step_id.to_string(),
-                            LogAction {
-                                id: action_id.clone(),
-                                status: ProgressStatus::Failed,
-                                description: format!(
-                                    "Command {} return an error status {}\n Output: {}",
-                                    command,
-                                    status.code().unwrap(),
-                                    *stderr_buffer.lock().unwrap()
-                                ),
-                                progress: ActionProgressType::Spinner,
-                                percent: None,
-                            },
-                        );
-                        return true;
-                    }
-
-                    Logger::set_action(
-                        target_id.to_string(),
-                        step_id.to_string(),
-                        LogAction {
-                            id: action_id.clone(),
-                            status: ProgressStatus::Done,
-                            description: format!("Running command {:?}", command),
-                            progress: ActionProgressType::Spinner,
-                            percent: None,
-                        },
-                    );
-
-                    return false;
+                for (i, f) in in_files.iter().enumerate() {
+                    replacements.insert(format!("in_files[{}]", i), f.clone());
                 }
-                _ => false,
+                for (i, f) in out_files.iter().enumerate() {
+                    replacements.insert(format!("out_files[{}]", i), f.clone());
+                }
+
+                if let Some(defaults) = maybe_replacements {
+                    replacements.extend(defaults.clone());
+                }
+
+                command = emake::compiler::compile(
+                    cwd,
+                    &command,
+                    &emakefile_cwd.to_string(),
+                    Some(&replacements),
+                );
+
+                let action_id = format!(
+                    "{}{}{}{}{}",
+                    target_id,
+                    step_id,
+                    ID,
+                    in_files.join(";"),
+                    out_files.join(";")
+                );
+
+                Logger::set_action(
+                    target_id.to_string(),
+                    step_id.to_string(),
+                    LogAction {
+                        id: action_id.clone(),
+                        status: ProgressStatus::Progress,
+                        description: format!("Running command: {}", command),
+                        progress: ActionProgressType::Spinner,
+                        percent: None,
+                    },
+                );
+
+                let (shell, arg) = if cfg!(windows) {
+                    ("cmd", "/C")
+                } else {
+                    ("sh", "-c")
+                };
+
+                let mut child = Command::new(shell)
+                    .current_dir(cwd)
+                    .arg(arg)
+                    .arg(&command)
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped())
+                    .spawn()
+                    .expect("Failed to execute command");
+
+                let stdout = child.stdout.take().unwrap();
+                let stderr = child.stderr.take().unwrap();
+
+                let stdout_reader = BufReader::new(stdout);
+                let stderr_reader = BufReader::new(stderr);
+
+                let tid_stdout = target_id.to_string();
+                let sid_stdout = step_id.to_string();
+                let aid_stdout = action_id.clone();
+                let cmd_stdout = command.clone();
+
+                let stdout_thread = std::thread::spawn(move || {
+                    for line in stdout_reader.lines() {
+                        if let Ok(text) = line {
+                            Logger::set_action(
+                                tid_stdout.clone(),
+                                sid_stdout.clone(),
+                                LogAction {
+                                    id: aid_stdout.clone(),
+                                    status: ProgressStatus::Progress,
+                                    description: format!("{}\n[stdout] {}", cmd_stdout, text),
+                                    progress: ActionProgressType::Spinner,
+                                    percent: None,
+                                },
+                            );
+                        }
+                    }
+                });
+
+                let tid_stderr = target_id.to_string();
+                let sid_stderr = step_id.to_string();
+                let aid_stderr = action_id.clone();
+                let cmd_stderr = command.clone();
+
+                let stderr_thread = std::thread::spawn(move || {
+                    let mut errors = Vec::new();
+                    for line in stderr_reader.lines() {
+                        if let Ok(text) = line {
+                            errors.push(text.clone());
+                            Logger::set_action(
+                                tid_stderr.clone(),
+                                sid_stderr.clone(),
+                                LogAction {
+                                    id: aid_stderr.clone(),
+                                    status: ProgressStatus::Progress,
+                                    description: format!("{}\n[stderr] {}", cmd_stderr, text),
+                                    progress: ActionProgressType::Spinner,
+                                    percent: None,
+                                },
+                            );
+                        }
+                    }
+                    errors
+                });
+
+                let status = child.wait().expect("Failed to wait on child");
+
+                stdout_thread.join().unwrap();
+                let errors = stderr_thread.join().unwrap();
+
+                if !status.success() {
+                    Logger::set_action(
+                        target_id.to_string(),
+                        step_id.to_string(),
+                        LogAction {
+                            id: action_id.clone(),
+                            status: ProgressStatus::Failed,
+                            description: format!(
+                                "Command `{}` failed with exit code {}.\n{}",
+                                command,
+                                status.code().unwrap_or(-1),
+                                errors.join("\n")
+                            ),
+                            progress: ActionProgressType::Spinner,
+                            percent: None,
+                        },
+                    );
+                    return true;
+                }
+
+                Logger::set_action(
+                    target_id.to_string(),
+                    step_id.to_string(),
+                    LogAction {
+                        id: action_id,
+                        status: ProgressStatus::Done,
+                        description: format!("Command `{}` completed successfully", command),
+                        progress: ActionProgressType::Spinner,
+                        percent: None,
+                    },
+                );
+
+                false
+            } else {
+                false
             }
         })
     }

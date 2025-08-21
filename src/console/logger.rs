@@ -29,6 +29,7 @@ pub enum ProgressStatus {
 pub enum ActionProgressType {
     Spinner,
     Bar,
+    None,
 }
 
 #[derive(Debug, Clone)]
@@ -84,15 +85,15 @@ fn flush_output(stdout: &mut std::io::Stdout, buffer: &Vec<String>) {
     let mut previous_buffer = BUFFER_OUTPUT.lock().unwrap();
     let (_, rows) = crossterm::terminal::size().unwrap();
     let displayed_lines = cmp::min(buffer.len(), rows as usize);
-    
+
     let start = buffer.len() - displayed_lines;
     let visible_lines = &buffer[start..];
 
     // Move cursor to top of printed output
     let move_up = previous_buffer.len().min(rows as usize) as u16;
     if move_up > 0 {
-        execute!(stdout, MoveUp(move_up)).unwrap();
-        execute!(stdout, Clear(ClearType::FromCursorDown)).unwrap();
+        queue!(stdout, MoveUp(move_up)).unwrap();
+        queue!(stdout, Clear(ClearType::FromCursorDown)).unwrap();
     }
 
     for (i, line) in buffer.iter().enumerate() {
@@ -104,16 +105,16 @@ fn flush_output(stdout: &mut std::io::Stdout, buffer: &Vec<String>) {
     }
 
     for (i, line) in visible_lines.iter().enumerate() {
-        execute!(stdout, MoveToColumn(0)).unwrap();
+        queue!(stdout, MoveToColumn(0)).unwrap();
 
         // if previous_buffer.len() > i {
-            // if previous_buffer[i] != *line {
-                execute!(stdout, Clear(ClearType::CurrentLine)).unwrap();
-                println!("{}", line);
-                // previous_buffer[i] = line.clone();
-            // } else {
-            //     execute!(stdout, MoveDown(0)).unwrap();
-            // }
+        // if previous_buffer[i] != *line {
+        queue!(stdout, Clear(ClearType::CurrentLine)).unwrap();
+        println!("{}", line);
+        // previous_buffer[i] = line.clone();
+        // } else {
+        //     execute!(stdout, MoveDown(0)).unwrap();
+        // }
         // } else {
         //     execute!(stdout, Clear(ClearType::CurrentLine)).unwrap();
         //     println!("{}", line);
@@ -121,7 +122,7 @@ fn flush_output(stdout: &mut std::io::Stdout, buffer: &Vec<String>) {
         // }
     }
 
-     // Clear extra old lines if buffer shrunk
+    // Clear extra old lines if buffer shrunk
     if previous_buffer.len() > buffer.len() {
         previous_buffer.truncate(visible_lines.len());
     }
@@ -226,18 +227,30 @@ impl Logger {
         let mut buffer = Vec::new();
 
         for target in GLOBAL_OUTPUT.lock().unwrap().iter_mut() {
+            if target.status != ProgressStatus::Progress {
+                continue;
+            }
+
             let log_target = style(format!("Building target {}", target.id))
                 .blue()
                 .bold()
                 .to_string();
+            // if target.status == ProgressStatus::Done {
+            //     log_target = style(format!(
+            //         "{} {}",
+            //         style("✔").green().bold(),
+            //         style(format!("Building target {}", target.id)).blue()
+            //     ))
+            //     .to_string();
+            // }
             log_line(&log_target, &mut buffer);
 
             for step in target.steps.iter_mut() {
                 if step.status == ProgressStatus::Skipped {
-                    let log_action = format!(
-                        "  {}",
-                        style(&step.description).black()
-                    );
+                    let log_action = format!("  {}", style(&step.description).black());
+                    log_line(&log_action, &mut buffer);
+                } else if step.status == ProgressStatus::Done {
+                    let log_action = format!("  {} {}", style("✔").green().bold(), &step.description);
                     log_line(&log_action, &mut buffer);
                 } else {
                     let step_log = format!("  {}", style(&step.description).green());
@@ -246,10 +259,12 @@ impl Logger {
 
                 for action in step.actions.iter_mut() {
                     if action.status == ProgressStatus::Done {
-                        let log_action =
-                            format!("    {} {}", style("✔").green().bold(), action.description);
-                        log_line(&log_action, &mut buffer);
-                    } else if action.status == ProgressStatus::Skipped {
+                        continue;
+                    }
+                        // let log_action =
+                        //     format!("    {} {}", style("✔").green().bold(), action.description);
+                        // log_line(&log_action, &mut buffer);
+                    if action.status == ProgressStatus::Skipped {
                         let log_action = format!(
                             "    {} {}",
                             style("✔").magenta().bold(),

@@ -2,6 +2,7 @@ use crate::actions::{
     compute_action_footprint, get_registered_action_footprint, register_action_footprint,
 };
 use crate::cache::get_out_dir_path;
+use crate::commands::build;
 use crate::console::log;
 use crate::console::logger::{
     ActionProgressType, LogAction, LogStep, LogTarget, Logger, ProgressStatus,
@@ -12,13 +13,14 @@ use crate::graph::generator::{get_absolute_target_path, to_emakefile_path};
 use crate::utils::get_absolute_file_path;
 use crate::{
     cache, credentials, emake, get_mutex_for_id, graph, utils, ACTIONS_STORE,
-    CACHE_IN_FILE_TO_UPDATE, CACHE_OUT_FILE_TO_UPDATE, CREDENTIALS_STORE, GLOBAL_SEMAPHORE,
-    MULTI_PROGRESS,
+    CACHE_IN_FILE_TO_UPDATE, CACHE_OUT_FILE_TO_UPDATE, CREDENTIALS_STORE, MULTI_PROGRESS,
 };
 use console::style;
+use dashmap::DashMap;
 use futures::future::join_all;
 use futures::StreamExt;
 use indicatif::{ProgressBar, ProgressFinish, ProgressStyle};
+use once_cell::sync::Lazy;
 use reqwest::Client;
 use std::borrow::Cow;
 use std::error::Error;
@@ -29,12 +31,13 @@ use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::process;
 use std::process::ExitStatus;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::{collections::HashMap, future::Future};
 use tokio::task::JoinHandle;
 use url::Url;
 
-static SPINNER_TIME: u64 = 200;
+static RUNNED_TARGETS: Lazy<DashMap<String, Arc<tokio::sync::Mutex<()>>>> = Lazy::new(DashMap::new);
 
 async fn download_file(
     target_id: &str,
@@ -207,7 +210,6 @@ async fn get_real_in_files<'a>(
     let mut download_futures = Vec::new();
     let mut downloadable_files_indices = HashMap::new();
     let mut downloaded_files = Vec::new();
-
     // Get in files modification date
     for in_file in &in_files {
         let file_path;
@@ -251,8 +253,8 @@ async fn get_real_in_files<'a>(
                     let cwd_clone = cwd.to_string();
                     let emakefile_current_path = emakefile_current_path.to_string();
                     let file_credentials = file_credentials.clone();
+
                     download_futures.push(tokio::spawn(async move {
-                        let _s = GLOBAL_SEMAPHORE.acquire().await;
                         download_file(
                             &target_id_clone,
                             &step_id_clone,
@@ -377,7 +379,8 @@ async fn run_step<'a>(
     cwd: &'a str,
     emakefile_current_path: &'a str,
     force_out_files: Option<Vec<String>>,
-) {
+) -> bool {
+    let mut has_error = false;
     let plugin = ACTIONS_STORE.get(&step.plugin).expect(&format!(
         "Can't execute step \"{}\", we are not able to find the plugin used in this step",
         step.description.clone()
@@ -402,6 +405,7 @@ async fn run_step<'a>(
     ]);
     let real_in_files =
         get_real_in_files(target_id, step_id, step, cwd, emakefile_current_path).await;
+    // log::info!("Run step {}", step.description);
     let plugin_out_files = get_real_out_files(step_id, step, cwd, emakefile_current_path).await;
     let mut real_out_files = plugin_out_files.clone();
     if force_out_files.is_some() {
@@ -467,7 +471,7 @@ async fn run_step<'a>(
     }
 
     if need_to_run_action {
-        let has_error = plugin
+        has_error = plugin
             .run(
                 cwd,
                 target_id,
@@ -520,20 +524,29 @@ async fn run_step<'a>(
                         .await
                 }
             }
-
-            cache::write_in_cache(cwd).await; // Only usefull if we call several time a target
         }
+        Logger::set_step(
+            target_id.to_string(),
+            LogStep {
+                id: step_id.to_string(),
+                description: step_description.clone(),
+                actions: Vec::new(),
+                status: ProgressStatus::Done,
+            },
+        );
     } else {
         Logger::set_step(
-        target_id.to_string(),
-        LogStep {
-            id: step_id.to_string(),
-            description: step_description.clone(),
-            actions: Vec::new(),
-            status: ProgressStatus::Skipped,
-        },
-    );
+            target_id.to_string(),
+            LogStep {
+                id: step_id.to_string(),
+                description: step_description.clone(),
+                actions: Vec::new(),
+                status: ProgressStatus::Skipped,
+            },
+        );
     }
+
+    has_error
 }
 
 pub fn run_target<'a>(
@@ -541,8 +554,15 @@ pub fn run_target<'a>(
     cwd: String,
 ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
     Box::pin(async move {
-        let target_mutex = get_mutex_for_id(&target_absolute_path).await;
-        let _guard_target = target_mutex.lock().await;
+        if RUNNED_TARGETS.contains_key(&target_absolute_path) {
+            let mutex = RUNNED_TARGETS.get(&target_absolute_path).unwrap();
+            let _target_lock = mutex.lock().await;
+            return;
+        }
+
+        let mutex = Arc::new(tokio::sync::Mutex::new(()));
+        RUNNED_TARGETS.insert(target_absolute_path.clone(), mutex.clone());
+        let _target_lock = mutex.lock().await;
 
         let emakefile_path = to_emakefile_path(&target_absolute_path, &cwd);
         let emakefile = emake::loader::load_file(&emakefile_path.to_string_lossy().to_string());
@@ -564,7 +584,6 @@ pub fn run_target<'a>(
                 let cwd_clone = cwd.clone();
 
                 let handle = tokio::spawn(async move {
-                    let _s = GLOBAL_SEMAPHORE.acquire().await;
                     run_target(dependency_target_path_clone, cwd_clone).await;
                 });
 
@@ -583,7 +602,7 @@ pub fn run_target<'a>(
         });
 
         if let Some(steps) = &target.steps {
-            let mut steps_tasks: Vec<JoinHandle<()>> = Vec::new();
+            let mut steps_tasks: Vec<JoinHandle<bool>> = Vec::new();
 
             for (step_index, step) in steps.iter().enumerate() {
                 let step_index_string = format!("{}", step_index);
@@ -597,7 +616,6 @@ pub fn run_target<'a>(
 
                 if target.parallel.unwrap_or(false) {
                     let fut = async move {
-                        let _s = GLOBAL_SEMAPHORE.acquire().await;
                         let m = get_mutex_for_id(&step_id_clone).await;
                         let _guard = m.lock().await;
                         run_step(
@@ -608,9 +626,9 @@ pub fn run_target<'a>(
                             &emakefile_path_str,
                             None,
                         )
-                        .await;
+                        .await
                     };
-                    let handle: JoinHandle<()> = tokio::spawn(fut);
+                    let handle: JoinHandle<bool> = tokio::spawn(fut);
                     steps_tasks.push(handle);
                 } else {
                     let mut step_out_files =
@@ -647,7 +665,7 @@ pub fn run_target<'a>(
 
                     let m = get_mutex_for_id(&step_id_clone).await;
                     let _guard = m.lock().await;
-                    run_step(
+                    let has_error = run_step(
                         &target_id_clone,
                         &step_id_clone,
                         &step_clone,
@@ -656,11 +674,32 @@ pub fn run_target<'a>(
                         Some(step_out_files),
                     )
                     .await;
+
+                    if has_error {
+                        log::error!(
+                            "An error occured when running the step {}, the status code is not 0",
+                            step_id_clone
+                        );
+                        build::exit(&cwd, 1).await;
+                    }
                 }
             }
 
-            futures::future::join_all(steps_tasks).await;
-            // cache::write_out_cache(&cwd).await; // Only usefull if we call several time a target
+            let join_results = futures::future::join_all(steps_tasks).await;
+            for result in join_results {
+                let has_error = result.unwrap();
+                if has_error {
+                    log::error!("An error occured when running a step,  the status code is not 0");
+                    build::exit(&cwd, 1).await;
+                }
+            }
         }
+
+        Logger::set_target(LogTarget {
+            id: target_absolute_path.clone(),
+            description: None,
+            steps: Vec::new(),
+            status: ProgressStatus::Done,
+        });
     })
 }
