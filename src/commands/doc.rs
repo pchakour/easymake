@@ -4,7 +4,7 @@ use minijinja::render;
 
 pub fn generate() {
   let repository_path = env::current_dir().unwrap();
-  let documentation_folder_path = repository_path.join("documentation");
+  let documentation_folder_path = repository_path.join("docs");
 
   // Generate actions documentation
 
