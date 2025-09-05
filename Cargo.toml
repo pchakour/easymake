@@ -43,6 +43,9 @@ walkdir = "2.5.0"
 xz2 = "0.1.7"
 zip = "0.6"
 zstd = { version = "0.13.3", features = ["zstdmt"] }
+config-macros = { path = "lib/config-macros" }
+inventory = "0.3.21"
+minijinja = "2.12.0"
 
 [[bin]]
 name = "easybuild"

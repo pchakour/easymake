@@ -2,27 +2,46 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     future::Future,
-    io::{BufRead, BufReader, Read},
+    io::{BufRead, BufReader},
     pin::Pin,
     process::{Command, Stdio},
-    sync::{Arc, Mutex},
 };
 
 use crate::{
     console::{
-        log,
         logger::{ActionProgressType, LogAction, Logger, ProgressStatus},
-    },
-    emake::{self, InFile, PluginAction},
+    }, emake::{self, InFile, PluginAction}
 };
+use config_macros::ActionDoc;
 
 use super::Action;
 pub static ID: &str = "cmd";
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CmdAction(pub String);
-
-pub struct Cmd;
+#[derive(ActionDoc, Debug, Clone, Serialize, Deserialize, Default)]
+#[action_doc(
+    id = "cmd",
+    short_desc = "Execute shell command.",
+    description = "The cmd property allow to use `in_files` and `out_files` as variables.",
+    example = "
+targets:
+    pre_hello_world:
+        steps:
+            - description: Generate hello world file
+              in_files: []
+              out_files: [\"{{ EMAKE_WORKING_DIR }}/hello_world.txt\"]
+              cmd: touch {{ out_files }}
+    hello_world:
+        deps:
+            - pre_hello_world
+        steps:
+            - description: Echo example
+              in_files: [\"{{ EMAKE_WORKING_DIR }}/hello_world.txt\"]
+              out_files: [\"{{ EMAKE_WORKING_DIR }}/hello_world.txt\"]
+              cmd: echo 'hello world' >> {{ in_files }}
+    
+"
+)]
+pub struct Cmd(pub String);
 
 impl Action for Cmd {
     fn insert_in_files<'a>(
@@ -219,6 +238,6 @@ impl Action for Cmd {
     }
 
     fn clone_box(&self) -> Box<dyn Action + Send + Sync> {
-        Box::new(Self)
+        Box::new(Self(self.0.clone()))
     }
 }

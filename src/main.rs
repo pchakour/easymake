@@ -7,6 +7,7 @@ mod emake;
 mod graph;
 mod utils;
 mod errors;
+mod doc;
 
 use clap::{arg, Command, Parser};
 use ::console::style;
@@ -26,7 +27,7 @@ struct Args {
 use dashmap::{DashMap, DashSet};
 use once_cell::sync::Lazy;
 use tokio::{
-    sync::{Mutex, Semaphore},
+    sync::{Mutex},
 };
 
 use crate::{actions::ActionsStore, console::log, credentials::CredentialsStore};
@@ -62,6 +63,10 @@ async fn main() {
                 .about("Build a target")
                 .arg(arg!([target] "Target to build").required(true))
                 .arg(arg!(--notsilent "Dispay all outputs").required(false)),
+        )
+        .subcommand(
+            Command::new("doc")
+                .about("Generate documentation")
         )
         .get_matches();
 

@@ -49,8 +49,8 @@ pub struct Step {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(untagged)]
 pub enum PluginAction {
-    Cmd { cmd: cmd::CmdAction },
-    Copy { copy: copy::CopyAction },
+    Cmd { cmd: cmd::Cmd },
+    Copy { copy: copy::Copy },
     Extract { extract: extract::ExtractAction },
     Move {
         #[serde(rename = "move")] 
@@ -60,7 +60,7 @@ pub enum PluginAction {
         remove: remove::RemoveAction
     },
     Archive {
-        archive: archive::ArchiveAction
+        archive: archive::Archive
     }
 }
 

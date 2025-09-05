@@ -81,10 +81,10 @@ pub fn instanciate() -> ActionsStore {
     ActionsStore {
         actions: HashMap::new(),
     }
-    .add(&String::from(cmd::ID), Box::new(cmd::Cmd))
-    .add(&String::from(copy::ID), Box::new(copy::Copy))
+    .add(&String::from(cmd::ID), Box::new(cmd::Cmd{..Default::default()}))
+    .add(&String::from(copy::ID), Box::new(copy::Copy{..Default::default()}))
     .add(&String::from(extract::ID), Box::new(extract::Extract))
     .add(&String::from(mv::ID), Box::new(mv::Move))
     .add(&String::from(remove::ID), Box::new(remove::Remove))
-    .add(&String::from(archive::ID), Box::new(archive::Archive))
+    .add(&String::from(archive::ID), Box::new(archive::Archive{..Default::default()}))
 }

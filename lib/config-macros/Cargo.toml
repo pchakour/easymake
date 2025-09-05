@@ -1,0 +1,13 @@
+[package]
+name = "config-macros"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { version = "1.0.109", features = ["full"] }
+quote = "1"
+proc-macro2 = "1"
+inventory = "0.3.21"

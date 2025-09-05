@@ -1,9 +1,9 @@
+use config_macros::ActionDoc;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, future::Future, path::PathBuf, pin::Pin};
 
 use crate::{
     console::{
-        log,
         logger::{ActionProgressType, LogAction, Logger, ProgressStatus},
     },
     emake::{InFile, PluginAction},
@@ -12,13 +12,37 @@ use crate::{
 use super::Action;
 pub static ID: &str = "copy";
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CopyAction {
+#[derive(ActionDoc, Debug, Clone, Serialize, Deserialize, Default)]
+#[action_doc(
+    id = "copy",
+    short_desc = "Copy files or folders to a specific destination",
+    example = "
+targets:
+    pre_copy_files:
+        steps:
+            - description: Generate hello world file
+              in_files: []
+              out_files: [\"{{ EMAKE_WORKING_DIR }}/hello_world.txt\"]
+              cmd: touch {{ out_files }}
+    copy_files:
+        deps:
+            - pre_copy_files
+        steps:
+            - description: Copy hello world file
+              copy: 
+                from: 
+                    - \"{{ EMAKE_WORKING_DIR }}/hello_world.txt\"
+                to:
+                    - \"{{ EMAKE_OUT_DIR }}/hello_world.txt\"
+    
+"
+)]
+pub struct Copy {
+    #[action_prop(description = "A list of source files to copy", required = true)]
     pub from: Vec<String>,
+    #[action_prop(description = "A list of destination files. The number of destinations must be one to copy all sources in the destination or must match the number of destination", required = true)]
     pub to: Vec<String>,
 }
-
-pub struct Copy;
 
 impl Action for Copy {
     fn insert_in_files<'a>(
@@ -162,6 +186,6 @@ impl Action for Copy {
         })
     }
     fn clone_box(&self) -> Box<dyn Action + Send + Sync> {
-        Box::new(Self)
+        Box::new(Self { from: self.from.clone(), to: self.to.clone() })
     }
 }

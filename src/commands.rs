@@ -1,9 +1,10 @@
-use std::path::Path;
 use clap::ArgMatches;
+use std::path::Path;
 
-pub mod graph;
-pub mod clean;
 pub mod build;
+pub mod clean;
+pub mod graph;
+pub mod doc;
 
 pub async fn run_command(matches: &ArgMatches, cwd: &Path) {
     if let Some(matches) = matches.subcommand_matches("build") {
@@ -15,5 +16,7 @@ pub async fn run_command(matches: &ArgMatches, cwd: &Path) {
     } else if let Some(matches) = matches.subcommand_matches("graph") {
         let target = matches.get_one::<String>("target").expect("required");
         graph::run(target, cwd);
+    } else if let Some(_matches) = matches.subcommand_matches("doc") {
+        doc::generate();
     }
 }

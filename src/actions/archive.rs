@@ -1,3 +1,4 @@
+use config_macros::ActionDoc;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
@@ -10,11 +11,7 @@ use walkdir::WalkDir;
 use zip::{write::FileOptions, ZipWriter};
 
 use crate::{
-    actions,
-    console::{
-        log,
-        logger::{ActionProgressType, LogAction, Logger, ProgressStatus},
-    },
+    console::logger::{ActionProgressType, LogAction, Logger, ProgressStatus},
     emake::{InFile, PluginAction},
 };
 use flate2::{write::GzEncoder, Compression};
@@ -25,14 +22,28 @@ use zstd::stream::Encoder as ZstdEncoder;
 use super::Action;
 pub static ID: &str = "archive";
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ArchiveAction {
-    from: String,
-    to: String,
-    exclude: Option<Vec<String>>,
+#[derive(ActionDoc, Debug, Clone, Serialize, Deserialize, Default)]
+#[action_doc(
+    id = "archive",
+    short_desc = "Compress your files as an archive",
+    example = "
+targets:
+  hello_world:
+    steps:
+        - description: 'Example files compression'
+          archive:
+            from: from_path
+            to: to_path
+"
+)]
+pub struct Archive {
+    #[action_prop(description = "Files to compress", required = true)]
+    pub from: String,
+    #[action_prop(description = "Destination", required = true)]
+    pub to: String,
+    #[action_prop(description = "Exclude a list of file", required = false)]
+    pub exclude: Option<Vec<String>>,
 }
-
-pub struct Archive;
 
 fn build_exclude_globset(patterns: &Vec<String>) -> Result<GlobSet, Box<dyn std::error::Error>> {
     let mut builder = GlobSetBuilder::new();
@@ -398,6 +409,6 @@ impl Action for Archive {
         })
     }
     fn clone_box(&self) -> Box<dyn Action + Send + Sync> {
-        Box::new(Self)
+        Box::new(Self { from: self.from.clone(), to: self.to.clone(), exclude: self.exclude.clone() })
     }
 }
