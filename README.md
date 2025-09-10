@@ -29,7 +29,7 @@ emake build //my_first_target
 ```
 
 ✅ You should see `Hello !` printed.  
-Emake will also create a `.emake` folder in your project (learn more about it [here](./docs/emake_folder.md)).
+Emake will also create a `.emake` folder in your project (learn more about it [here](https://pchakour.github.io/easymake/emake_folder.html)).
 
 ---
 
