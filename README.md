@@ -329,5 +329,5 @@ targets:
 ---
 
 ## 📖 Next Steps
-- Learn about all available actions: [Actions Reference](./docs/targets.md#actions)  
+- Learn about all available actions: [Actions Reference](./docs/actions.md)  
 - Understand the `.emake` folder: [Emake Folder](./docs/emake_folder.md)
