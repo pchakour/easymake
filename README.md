@@ -31,7 +31,6 @@ emake build //my_first_target
 ✅ You should see `Hello !` printed.  
 Emake will also create a `.emake` folder in your project (learn more about it [here](./docs/emake_folder.md)).
 
----
 
 ### 2. Use variables
 Variables make your Emakefile reusable and configurable.
@@ -71,7 +70,6 @@ targets:
           cmd: echo "Hello {{ variables:name }}! Linux README is here: {{ in_files }}"
 ```
 
----
 
 ### 3. Add target dependencies
 Targets can depend on each other. Let’s create an archive before saying hello:
@@ -103,7 +101,6 @@ targets:
           cmd: echo "Hello {{ variables:name }}! Archive is at {{ in_files }}"
 ```
 
----
 
 ### 4. Multiple steps in parallel
 By default, steps run **sequentially**. You can set `parallel: true` when steps are independent:
@@ -123,7 +120,6 @@ targets:
           cmd: echo "Archive available at {{ in_files }}"
 ```
 
----
 
 ### 5. Split into multiple Emakefiles
 Large projects can be split across multiple Emakefiles. Create the following structure for our example:
