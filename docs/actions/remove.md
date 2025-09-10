@@ -30,4 +30,4 @@ targets:
 
 | Name | Description | Type | Required |
 | ---- | ----------- | -- | -- |
-| paths | List of path to remove. Could be folders or files | Vec < String > | true |
+| paths | List of path to remove. Could be folders or files | Vec < String > | true |

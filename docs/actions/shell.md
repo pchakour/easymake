@@ -34,8 +34,8 @@ targets:
 
 | Name | Description | Type | Required |
 | ---- | ----------- | -- | -- |
-| cmd |  | String | false |
-| in_files |  | Option < Vec < InFile > > | false |
-| out_files |  | Option < Vec < String > > | false |
-| checksum |  | Option < String > | false |
-| clean |  | Option < String > | false |
+| cmd |  | String | false |
+| in_files |  | Option < Vec < InFile > > | false |
+| out_files |  | Option < Vec < String > > | false |
+| checksum |  | Option < String > | false |
+| clean |  | Option < String > | false |

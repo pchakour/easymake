@@ -24,6 +24,6 @@ targets:
 
 | Name | Description | Type | Required |
 | ---- | ----------- | -- | -- |
-| from | Files to compress | Vec < InFile > | true |
-| to | Destination | String | true |
-| exclude | Exclude a list of file | Option < Vec < String > > | false |
+| from | Files to compress | Vec < InFile > | true |
+| to | Destination | String | true |
+| exclude | Exclude a list of file | Option < Vec < String > > | false |

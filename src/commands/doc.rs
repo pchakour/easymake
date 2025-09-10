@@ -13,6 +13,9 @@ pub fn generate() {
   generate_types_doc(&documentation_folder_path);
 }
 
+/**
+ * Generate types documentation
+ */
 pub fn generate_types_doc(documentation_folder_path: &PathBuf) {
   let types_doc_path = documentation_folder_path.join("types.md");
   
@@ -41,6 +44,9 @@ pub fn generate_types_doc(documentation_folder_path: &PathBuf) {
   fs::write(&types_doc_path, types_documentation).unwrap();
 }
 
+/**
+ * Generate actions documentation
+ */
 pub fn generate_actions_doc(documentation_folder_path: &PathBuf) {
     // Remove existing documentation
   let actions_doc_folder_path = documentation_folder_path.join("actions");
@@ -70,7 +76,7 @@ pub fn generate_actions_doc(documentation_folder_path: &PathBuf) {
 
       for property in doc.properties {
           content.push_str(&format!(
-              "| {} | {} | {} | {} |\n",
+              "| {} | {} | {} | {} |\n",
               property.name, property.description, property.ty, property.required
           ));
       }
@@ -82,16 +88,16 @@ pub fn generate_actions_doc(documentation_folder_path: &PathBuf) {
       ).unwrap();
   }
 
-  // Generate targets
-  let targets_template_file_path = documentation_folder_path.join("assets/templates/targets.md.jinja");
-  let targets_template_file_content = fs::read(targets_template_file_path).unwrap();
-  let targets_template_file_content_str = std::str::from_utf8(&targets_template_file_content).unwrap();
-  let targets_file_content = render!(targets_template_file_content_str, actions => actions_summary);
+  // Generate actions
+  let actions_template_file_path = documentation_folder_path.join("assets/templates/actions.md.jinja");
+  let actions_template_file_content = fs::read(actions_template_file_path).unwrap();
+  let actions_template_file_content_str = std::str::from_utf8(&actions_template_file_content).unwrap();
+  let actions_file_content = render!(actions_template_file_content_str, actions => actions_summary);
 
-  let targets_file_path = documentation_folder_path.join("targets.md");
-  if targets_file_path.exists() {
-    fs::remove_file(&targets_file_path).unwrap();
+  let actions_file_path = documentation_folder_path.join("actions.md");
+  if actions_file_path.exists() {
+    fs::remove_file(&actions_file_path).unwrap();
   }
 
-  fs::write(targets_file_path, &targets_file_content).unwrap();
+  fs::write(actions_file_path, &actions_file_content).unwrap();
 }

@@ -28,6 +28,6 @@ targets:
 
 | Name | Description | Type | Required |
 | ---- | ----------- | -- | -- |
-| from | Archive to extract, can be an url | InFile | true |
-| to | Folder in which extract the archive | String | true |
-| out_files | To register extracted file in the cache. Allow to execute again the extraction if a file from out_files change | Option < Vec < String > > | false |
+| from | Archive to extract, can be an url | InFile | true |
+| to | Folder in which extract the archive | String | true |
+| out_files | To register extracted file in the cache. Allow to execute again the extraction if a file from out_files change | Option < Vec < String > > | false |
