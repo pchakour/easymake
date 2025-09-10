@@ -24,6 +24,6 @@ targets:
 
 | Name | Description | Type | Required |
 | ---- | ----------- | -- | -- |
-| from | Files to compress | Vec < InFile > | true |
+| from | Files to compress | Vec<[InFile](../types.md#infile)> | true |
 | to | Destination | String | true |
-| exclude | Exclude a list of file | Option < Vec < String > > | false |
+| exclude | Exclude a list of file | Option<Vec<String>> | false |

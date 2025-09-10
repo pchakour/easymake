@@ -34,5 +34,5 @@ targets:
 
 | Name | Description | Type | Required |
 | ---- | ----------- | -- | -- |
-| from | A list of source files to copy | Vec < String > | true |
-| to | A list of destination files. The number of destinations must be one to copy all sources in the destination or must match the number of destination | Vec < String > | true |
+| from | A list of source files to copy | Vec<String> | true |
+| to | A list of destination files. The number of destinations must be one to copy all sources in the destination or must match the number of destination | Vec<String> | true |

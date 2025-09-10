@@ -44,7 +44,7 @@ pub fn derive_action_doc(input: TokenStream) -> TokenStream {
                 let mut field_desc = String::new();
                 let mut field_required = false;
                 let ty = &field.ty;
-                let field_type = quote!(#ty).to_string();
+                let field_type = quote!(#ty).to_string().replace(" ", "");
                 for attr in &field.attrs {
                     if attr.path.is_ident("action_prop") {
                         if let Ok(Meta::List(meta_list)) = attr.parse_meta() {
