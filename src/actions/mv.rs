@@ -13,7 +13,6 @@ use crate::{
         logger::{ActionProgressType, LogAction, Logger, ProgressStatus},
     },
     emake::{InFile, PluginAction},
-    MULTI_PROGRESS,
 };
 
 use super::Action;

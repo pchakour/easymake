@@ -24,9 +24,9 @@ targets:
         steps:
             - description: Echo example
               shell:
-                cmd: echo 'hello world' >> {{ in_files }}
                 in_files: ["{{ EMAKE_WORKING_DIR }}/hello_world.txt"]
                 out_files: ["{{ EMAKE_WORKING_DIR }}/hello_world.txt"]
+                cmd: echo 'hello world' >> {{ in_files }}
 {% endraw %}
 
 ```

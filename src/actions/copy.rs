@@ -22,9 +22,9 @@ targets:
     pre_copy_files:
         steps:
             - description: Generate hello world file
-              in_files: []
-              out_files: [\"{{ EMAKE_WORKING_DIR }}/hello_world.txt\"]
-              cmd: touch {{ out_files }}
+              shell:
+                out_files: [\"{{ EMAKE_WORKING_DIR }}/hello_world.txt\"]
+                cmd: touch {{ out_files }}
     copy_files:
         deps:
             - pre_copy_files
