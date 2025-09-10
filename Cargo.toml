@@ -1,6 +1,6 @@
 [package]
 name = "easybuild"
-version = "0.1.0"
+version = "0.0.1-beta"
 edition = "2021"
 
 [dependencies]
@@ -48,5 +48,5 @@ inventory = "0.3.21"
 minijinja = "2.12.0"
 
 [[bin]]
-name = "easybuild"
+name = "emake"
 path = "src/main.rs"

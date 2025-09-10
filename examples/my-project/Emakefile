@@ -16,6 +16,6 @@ targets:
       - description: Display link
         shell:
           in_files:
-            - "{{ EMAKE_OUT_DIR }}/my_archive.tar.gz"
+            - "{{ EMAKE_OUT_DIR }}/my_archive.tar.gz"
           cmd: |
             echo "This is the path to the Linux Readme {{ in_files }}"
