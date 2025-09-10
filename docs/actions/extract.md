@@ -9,6 +9,7 @@ Support archive are: zip, tar.gz and tar.xz
 
 ```yaml
 
+{% raw %}
 targets:
     extraction_example:
         steps:
@@ -19,8 +20,8 @@ targets:
                 to:
                     - "{{ EMAKE_OUT_DIR }}"
                 out_files:
-                    - "{% raw %}{{ glob('${EMAKE_OUT_DIR}/main/**/*') }}{% endraw %}"
-    
+                    - "{{ glob('${EMAKE_OUT_DIR}/main/**/*') }}"
+{% endraw %}
 
 ```
 

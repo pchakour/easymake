@@ -9,6 +9,7 @@ Remove a list of paths
 
 ```yaml
 
+{% raw %}
 targets:
     pre_remove:
         steps:
@@ -23,6 +24,7 @@ targets:
               remove:
                 paths:
                     - "{{ EMAKE_OUT_DIR }}/hello.txt"
+{% endraw %}
 
 ```
 

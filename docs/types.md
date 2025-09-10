@@ -21,6 +21,7 @@ the donwloaded path.
 **Examples**
 
 ```yaml
+{% raw %}
 secrets:
     my_deep_secret:
       type: plain
@@ -50,6 +51,7 @@ targets:
                   - file: https://github.com/pchakour/easymake/archive/refs/heads/main.zip  
                     credentials: {{ secrets:my_deep_secret }}
                 cmd: ls {{ in_files }}
+{% endraw %}
 ```
 
 
