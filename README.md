@@ -68,7 +68,7 @@ targets:
         shell:
           in_files:
             - "{{ variables:linux_readme_url }}"
-          cmd: echo "Hello {{ variables:name }}! Linux README is here: {{ in_files }}"
+          cmd: echo "Hello {{ variables:name }}! Linux README is here {{ in_files }}"
 ```
 
 ---

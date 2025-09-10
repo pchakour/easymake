@@ -71,7 +71,7 @@ targets:
         shell:
           in_files:
             - "{{ variables:linux_readme_url }}"
-          cmd: echo "Hello {{ variables:name }}! Linux README is here: {{ in_files }}"
+          cmd: echo "Hello {{ variables:name }}! Linux README is here {{ in_files }}"
 {% endraw %}
 ```
 
@@ -319,7 +319,7 @@ cmd: echo "Version {{ variables:version }}"
 
 ### Secrets
 
-Secrets are supported for managing credentials (see [secrets documentation](./docs/secrets.md)).
+Secrets are supported for managing credentials (see [secrets documentation](./secrets.md)).
 
 ### Targets
 
@@ -343,5 +343,5 @@ targets:
 ---
 
 ## 📖 Next Steps
-- Learn about all available actions: [Actions Reference](./docs/actions.md)  
-- Understand the `.emake` folder: [Emake Folder](./docs/emake_folder.md)
+- Learn about all available actions: [Actions Reference](./actions.md)  
+- Understand the `.emake` folder: [Emake Folder](./emake_folder.md)
