@@ -1,9 +1,8 @@
-# Emake
 
-Emake is a **declarative build system** based on YAML files called **`Emakefile`**.  
+Easymake is a **declarative build system** based on YAML files called **`Emakefile`**.  
 It allows you to define **targets** composed of **steps**, which execute reusable **actions** (such as running a shell command, downloading a file, or creating an archive).  
 
-Unlike traditional build tools, Emake emphasizes **simplicity**, **extensibility**, and **structured documentation**.  
+Unlike traditional build tools, Easymake emphasizes **simplicity**, **extensibility**, and **structured documentation**.  
 
 ---
 
