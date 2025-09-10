@@ -22,7 +22,7 @@ the donwloaded path.
 
 ```yaml
 secrets:
-    my_deep_secret
+    my_deep_secret:
       type: plain
       username: My_username
       password: My_password
