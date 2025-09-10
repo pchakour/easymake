@@ -29,7 +29,7 @@ emake build //my_first_target
 ```
 
 ✅ You should see `Hello !` printed.  
-Emake will also create a `.emake` folder in your project (learn more about it [here](./emake_folder.md)).
+Emake will also create a `.emake` folder in your project (learn more about it [here](./docs/emake_folder.md)).
 
 ---
 
@@ -305,7 +305,7 @@ cmd: echo "Version {{ variables:version }}"
 
 ### Secrets
 
-Secrets are supported for managing credentials (see [secrets documentation](./secrets.md)).
+Secrets are supported for managing credentials (see [secrets documentation](./docs/secrets.md)).
 
 ### Targets
 
@@ -329,5 +329,5 @@ targets:
 ---
 
 ## 📖 Next Steps
-- Learn about all available actions: [Actions Reference](./targets.md#actions)  
-- Understand the `.emake` folder: [Emake Folder](./emake_folder.md)
+- Learn about all available actions: [Actions Reference](./docs/targets.md#actions)  
+- Understand the `.emake` folder: [Emake Folder](./docs/emake_folder.md)
