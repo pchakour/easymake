@@ -17,6 +17,7 @@ pub static ID: &str = "remove";
     id = "remove",
     short_desc = "Remove a list of paths",
     example = "
+{% raw %}
 targets:
     pre_remove:
         steps:
@@ -31,6 +32,7 @@ targets:
               remove:
                 paths:
                     - \"{{ EMAKE_OUT_DIR }}/hello.txt\"
+{% endraw %}
 "
 )]
 pub struct RemoveAction {

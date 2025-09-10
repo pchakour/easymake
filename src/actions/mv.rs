@@ -24,6 +24,7 @@ pub static ID: &str = "move";
     id = "move",
     short_desc = "Move files",
     example = "
+{% raw %}
 targets:
     extraction_example:
         steps:
@@ -32,7 +33,7 @@ targets:
                 from: 
                     - https://github.com/pchakour/easymake/archive/refs/heads/main.zip
                 to: \"{{ EMAKE_OUT_DIR }}/easymake_moved\"
-    
+{% endraw %}
 "
 )]
 pub struct MoveAction {

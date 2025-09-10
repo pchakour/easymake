@@ -17,6 +17,7 @@ pub static ID: &str = "copy";
     id = "copy",
     short_desc = "Copy files or folders to a specific destination",
     example = "
+{% raw %}
 targets:
     pre_copy_files:
         steps:
@@ -34,7 +35,7 @@ targets:
                     - \"{{ EMAKE_WORKING_DIR }}/hello_world.txt\"
                 to:
                     - \"{{ EMAKE_OUT_DIR }}/hello_world.txt\"
-    
+{% endraw %}
 "
 )]
 pub struct CopyAction {

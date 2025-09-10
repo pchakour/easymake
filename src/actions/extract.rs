@@ -32,6 +32,7 @@ pub static ID: &str = "extract";
     short_desc = "Extract archive",
     description = "Support archive are: zip, tar.gz and tar.xz",
     example = "
+{% raw %}
 targets:
     extraction_example:
         steps:
@@ -42,8 +43,8 @@ targets:
                 to:
                     - \"{{ EMAKE_OUT_DIR }}\"
                 out_files:
-                    - \"{% raw %}{{ glob('${EMAKE_OUT_DIR}/main/**/*') }}{% endraw %}\"
-    
+                    - \"{{ glob('${EMAKE_OUT_DIR}/main/**/*') }}\"
+{% endraw %}
 "
 )]
 pub struct ExtractAction {
