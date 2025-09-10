@@ -19,7 +19,7 @@ targets:
                 to:
                     - "{{ EMAKE_OUT_DIR }}"
                 out_files:
-                    - "{{ glob('${EMAKE_OUT_DIR}/main/**/*') }}"
+                    - "{% raw %}{{ glob('${EMAKE_OUT_DIR}/main/**/*') }}{% endraw %}"
     
 
 ```
