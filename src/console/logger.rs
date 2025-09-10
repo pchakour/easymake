@@ -41,6 +41,7 @@ pub struct LogAction {
     pub percent: Option<usize>,
 }
 
+#[derive(Debug)]
 pub struct LogStep {
     pub id: String,
     pub description: String,
@@ -48,6 +49,7 @@ pub struct LogStep {
     pub status: ProgressStatus,
 }
 
+#[derive(Debug)]
 pub struct LogTarget {
     pub id: String,
     pub description: Option<String>,
@@ -55,7 +57,7 @@ pub struct LogTarget {
     pub status: ProgressStatus,
 }
 
-static GLOBAL_OUTPUT: Lazy<Mutex<Vec<LogTarget>>> = Lazy::new(|| Mutex::new(Vec::new()));
+pub static GLOBAL_OUTPUT: Lazy<Mutex<Vec<LogTarget>>> = Lazy::new(|| Mutex::new(Vec::new()));
 static GLOBAL_ITERATIONS: Lazy<DashMap<String, usize>> = Lazy::new(DashMap::new);
 const SPINNER: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 static BUFFER_OUTPUT: Lazy<Mutex<Vec<String>>> = Lazy::new(|| Mutex::new(Vec::new()));
@@ -213,12 +215,7 @@ impl Logger {
     }
 
     pub fn close() {
-        let mut stdout = std::io::stdout();
-        execute!(stdout, Clear(ClearType::Purge)).unwrap();
-        let previous_buffer = BUFFER_OUTPUT.lock().unwrap();
-        for line in previous_buffer.iter() {
-            write!(stdout, "{}\n", line).unwrap();
-        }
+        Logger::write();
     }
 
     pub fn write() {
@@ -227,22 +224,24 @@ impl Logger {
         let mut buffer = Vec::new();
 
         for target in GLOBAL_OUTPUT.lock().unwrap().iter_mut() {
-            if target.status != ProgressStatus::Progress {
-                continue;
-            }
+            // if target.status != ProgressStatus::Progress {
+            //     continue;
+            // }
 
-            let log_target = style(format!("Building target {}", target.id))
+            // println!("TARGET {:?}", target);
+
+            let mut log_target = style(format!("Building target {}", target.id))
                 .blue()
                 .bold()
                 .to_string();
-            // if target.status == ProgressStatus::Done {
-            //     log_target = style(format!(
-            //         "{} {}",
-            //         style("✔").green().bold(),
-            //         style(format!("Building target {}", target.id)).blue()
-            //     ))
-            //     .to_string();
-            // }
+            if target.status == ProgressStatus::Done {
+                log_target = style(format!(
+                    "{} {}",
+                    style("✔").green().bold(),
+                    style(format!("Building target {}", target.id)).blue()
+                ))
+                .to_string();
+            }
             log_line(&log_target, &mut buffer);
 
             for step in target.steps.iter_mut() {
@@ -250,7 +249,8 @@ impl Logger {
                     let log_action = format!("  {}", style(&step.description).black());
                     log_line(&log_action, &mut buffer);
                 } else if step.status == ProgressStatus::Done {
-                    let log_action = format!("  {} {}", style("✔").green().bold(), &step.description);
+                    let log_action =
+                        format!("  {} {}", style("✔").green().bold(), &step.description);
                     log_line(&log_action, &mut buffer);
                 } else {
                     let step_log = format!("  {}", style(&step.description).green());
@@ -258,12 +258,12 @@ impl Logger {
                 }
 
                 for action in step.actions.iter_mut() {
-                    if action.status == ProgressStatus::Done {
-                        continue;
-                    }
-                        // let log_action =
-                        //     format!("    {} {}", style("✔").green().bold(), action.description);
-                        // log_line(&log_action, &mut buffer);
+                    // if action.status == ProgressStatus::Done {
+                    //     continue;
+                    // }
+                    // let log_action =
+                    //     format!("    {} {}", style("✔").green().bold(), action.description);
+                    // log_line(&log_action, &mut buffer);
                     if action.status == ProgressStatus::Skipped {
                         let log_action = format!(
                             "    {} {}",

@@ -1,3 +1,4 @@
+use config_macros::ActionDoc;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
@@ -12,10 +13,9 @@ use zip::ZipArchive;
 
 use crate::{
     console::{
-        log,
         logger::{ActionProgressType, LogAction, Logger, ProgressStatus},
     },
-    emake::{self, InFile, PluginAction},
+    emake::{InFile, PluginAction},
 };
 use flate2::read::GzDecoder;
 use rayon::prelude::*;
@@ -26,11 +26,33 @@ use xz2::read::XzDecoder;
 use super::Action;
 pub static ID: &str = "extract";
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(ActionDoc, Debug, Clone, Serialize, Deserialize)]
+#[action_doc(
+    id = "extract",
+    short_desc = "Extract archive",
+    description = "Support archive are: zip, tar.gz and tar.xz",
+    example = "
+targets:
+    extraction_example:
+        steps:
+            - description: Retrieve and extract archive from url
+              extract: 
+                from: 
+                    - https://github.com/pchakour/easymake/archive/refs/heads/main.zip
+                to:
+                    - \"{{ EMAKE_OUT_DIR }}\"
+                out_files:
+                    - \"{{ glob('${EMAKE_OUT_DIR}/main/**/*') }}\"
+    
+"
+)]
 pub struct ExtractAction {
-    from: String,
-    to: String,
-    out_files: Option<Vec<String>>,
+    #[action_prop(description = "Archive to extract, can be an url", required = true)]
+    pub from: InFile,
+    #[action_prop(description = "Folder in which extract the archive", required = true)]
+    pub to: String,
+    #[action_prop(description = "To register extracted file in the cache. Allow to execute again the extraction if a file from out_files change", required = false, default = "None")]
+    pub out_files: Option<Vec<String>>,
 }
 
 pub struct Extract;
@@ -155,60 +177,60 @@ fn extract(
     }
 }
 
-fn compile<'a>(
-    cwd: &'a str,
-    emakefile_cwd: &'a str,
-    action: &'a PluginAction,
-    in_files: &'a Vec<String>,
-    out_files: &'a Vec<String>,
-    maybe_replacements: Option<&'a HashMap<String, String>>,
-) -> Option<(String, String)> {
-    let mut replacements: HashMap<String, String> = HashMap::new();
+// fn compile<'a>(
+//     cwd: &'a str,
+//     emakefile_cwd: &'a str,
+//     action: &'a PluginAction,
+//     in_files: &'a Vec<String>,
+//     out_files: &'a Vec<String>,
+//     maybe_replacements: Option<&'a HashMap<String, String>>,
+// ) -> Option<(String, String)> {
+//     let mut replacements: HashMap<String, String> = HashMap::new();
 
-    if in_files.len() > 0 {
-        replacements.insert(String::from("in_files"), in_files[0].clone());
-    }
+//     if in_files.len() > 0 {
+//         replacements.insert(String::from("in_files"), in_files[0].clone());
+//     }
 
-    if out_files.len() > 0 {
-        replacements.insert(String::from("out_files"), out_files[0].clone());
-    }
+//     if out_files.len() > 0 {
+//         replacements.insert(String::from("out_files"), out_files[0].clone());
+//     }
 
-    for (index, in_file) in in_files.iter().enumerate() {
-        let key = format!("in_files[{}]", index);
-        replacements.insert(key, in_file.clone());
-    }
+//     for (index, in_file) in in_files.iter().enumerate() {
+//         let key = format!("in_files[{}]", index);
+//         replacements.insert(key, in_file.clone());
+//     }
 
-    for (index, in_file) in out_files.iter().enumerate() {
-        let key = format!("out_files[{}]", index);
-        replacements.insert(key, in_file.clone());
-    }
+//     for (index, in_file) in out_files.iter().enumerate() {
+//         let key = format!("out_files[{}]", index);
+//         replacements.insert(key, in_file.clone());
+//     }
 
-    if let Some(default_replacements) = maybe_replacements {
-        replacements.extend(default_replacements.to_owned());
-    }
+//     if let Some(default_replacements) = maybe_replacements {
+//         replacements.extend(default_replacements.to_owned());
+//     }
 
-    match &action {
-        PluginAction::Extract { extract } => {
-            let from_compiled = emake::compiler::compile(
-                cwd,
-                &extract.from,
-                &emakefile_cwd.to_string(),
-                Some(&replacements),
-            );
-            let to_compiled = emake::compiler::compile(
-                cwd,
-                &extract.to,
-                &emakefile_cwd.to_string(),
-                Some(&replacements),
-            );
+//     match &action {
+//         PluginAction::Extract { extract } => {
+//             let from_compiled = emake::compiler::compile(
+//                 cwd,
+//                 &extract.from,
+//                 &emakefile_cwd.to_string(),
+//                 Some(&replacements),
+//             );
+//             let to_compiled = emake::compiler::compile(
+//                 cwd,
+//                 &extract.to,
+//                 &emakefile_cwd.to_string(),
+//                 Some(&replacements),
+//             );
 
-            return Some((from_compiled, to_compiled));
-        }
-        _ => {}
-    }
+//             return Some((from_compiled, to_compiled));
+//         }
+//         _ => {}
+//     }
 
-    None
-}
+//     None
+// }
 
 impl Action for Extract {
     fn insert_in_files<'a>(
@@ -219,7 +241,7 @@ impl Action for Extract {
         Box::pin(async move {
             match action {
                 PluginAction::Extract { extract } => {
-                    in_files.push(InFile::Simple(extract.from.clone()));
+                    in_files.push(extract.from.clone());
                 }
                 _ => {}
             }
@@ -234,6 +256,7 @@ impl Action for Extract {
         Box::pin(async move {
             match action {
                 PluginAction::Extract { extract } => {
+                    out_files.push(extract.to.clone());
                     if let Some(plugin_out_files) = &extract.out_files {
                         for out_file in plugin_out_files {
                             out_files.push(out_file.clone());
@@ -260,31 +283,29 @@ impl Action for Extract {
     ) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>> {
         Box::pin(async move {
             let mut has_error = false;
-            let some_files = compile(
-                cwd,
-                emakefile_cwd,
-                action,
-                in_files,
-                out_files,
-                maybe_replacements,
-            );
+            // let some_files = compile(
+            //     cwd,
+            //     emakefile_cwd,
+            //     action,
+            //     in_files,
+            //     out_files,
+            //     maybe_replacements,
+            // );
 
-            if let Some((_from, to)) = some_files {
-                if !fs::exists(&to).unwrap() {
-                    fs::create_dir_all(&to).unwrap();
-                }
+            let from = &in_files[0];
+            let to = &out_files[0];
 
-                match extract(target_id, step_id, &in_files[0], &to) {
-                    Ok(()) => {
-                        has_error = false;
-                    }
-                    Err(_) => {
-                        has_error = true;
-                    }
+            if !fs::exists(to).unwrap() {
+                fs::create_dir_all(to).unwrap();
+            }
+
+            match extract(target_id, step_id, from, to) {
+                Ok(()) => {
+                    has_error = false;
                 }
-            } else {
-                log::error!("Error when trying to compile from and to parameters");
-                has_error = true;
+                Err(_) => {
+                    has_error = true;
+                }
             }
 
             has_error

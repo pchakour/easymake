@@ -1,9 +1,9 @@
+use config_macros::ActionDoc;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, future::Future, path::PathBuf, pin::Pin};
+use std::{collections::HashMap, future::Future, pin::Pin};
 
 use crate::{
     console::{
-        log,
         logger::{ActionProgressType, LogAction, Logger, ProgressStatus},
     },
     emake::{InFile, PluginAction},
@@ -12,8 +12,29 @@ use crate::{
 use super::Action;
 pub static ID: &str = "remove";
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(ActionDoc, Debug, Clone, Serialize, Deserialize)]
+#[action_doc(
+    id = "remove",
+    short_desc = "Remove a list of paths",
+    example = "
+targets:
+    pre_remove:
+        steps:
+            - description: Creating a file to remove
+              shell:
+                out_files:
+                    - \"{{ EMAKE_OUT_DIR }}/hello.txt\"
+                cmd: echo 'hello' > {{ out_files }}
+    remove_example:
+        steps:
+            - description: Remove file
+              remove:
+                paths:
+                    - \"{{ EMAKE_OUT_DIR }}/hello.txt\"
+"
+)]
 pub struct RemoveAction {
+    #[action_prop(description = "List of path to remove. Could be folders or files", required = true)]
     pub paths: Vec<String>,
 }
 

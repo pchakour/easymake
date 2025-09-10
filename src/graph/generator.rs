@@ -73,26 +73,26 @@ fn extract_in_file_value(value: &Value) -> Vec<InFile> {
             if in_file.is_string() {
                 result.push(InFile {
                     file: String::from(in_file.as_str().unwrap()),
-                    credentials: None,
+                    secrets: None,
                 });
             } else if in_file.is_mapping() {
                 let in_file_mapping = in_file.as_mapping().unwrap();
                 match in_file_mapping.get("file") {
                     Some(file_name) => {
-                        let credentials;
-                        match in_file_mapping.get("credentials") {
-                            Some(credentials_name) => {
-                                credentials =
-                                    Some(String::from(credentials_name.as_str().unwrap()));
+                        let secrets;
+                        match in_file_mapping.get("secrets") {
+                            Some(secrets_name) => {
+                                secrets =
+                                    Some(String::from(secrets_name.as_str().unwrap()));
                             }
                             None => {
-                                credentials = None;
+                                secrets = None;
                             }
                         }
 
                         result.push(InFile {
                             file: String::from(file_name.as_str().unwrap()),
-                            credentials,
+                            secrets,
                         });
                     }
                     None => {
@@ -112,7 +112,7 @@ fn extract_in_file_value(value: &Value) -> Vec<InFile> {
         .iter()
         .map(|file| InFile {
             file: file.to_owned(),
-            credentials: None,
+            secrets: None,
         })
         .collect()
 }
@@ -167,7 +167,7 @@ pub fn extract_in_files(cwd: &str, entry: &Option<Value>) -> Vec<InFile> {
                     get_absolute_file_path(&String::from(cwd), &in_file.file)
                         .to_string_lossy(),
                 ),
-                credentials: in_file.credentials.clone(),
+                secrets: in_file.secrets.clone(),
             }
         })
         .collect::<Vec<InFile>>();

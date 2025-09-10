@@ -22,7 +22,7 @@ use zstd::stream::Encoder as ZstdEncoder;
 use super::Action;
 pub static ID: &str = "archive";
 
-#[derive(ActionDoc, Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(ActionDoc, Debug, Clone, Serialize, Deserialize)]
 #[action_doc(
     id = "archive",
     short_desc = "Compress your files as an archive",
@@ -32,18 +32,21 @@ targets:
     steps:
         - description: 'Example files compression'
           archive:
-            from: from_path
+            from:
+                - from_path
             to: to_path
 "
 )]
-pub struct Archive {
+pub struct ArchiveSpec {
     #[action_prop(description = "Files to compress", required = true)]
-    pub from: String,
+    pub from: Vec<InFile>,
     #[action_prop(description = "Destination", required = true)]
     pub to: String,
     #[action_prop(description = "Exclude a list of file", required = false)]
     pub exclude: Option<Vec<String>>,
 }
+
+pub struct Archive;
 
 fn build_exclude_globset(patterns: &Vec<String>) -> Result<GlobSet, Box<dyn std::error::Error>> {
     let mut builder = GlobSetBuilder::new();
@@ -73,7 +76,7 @@ fn walk_with_excludes<'a>(
     Ok(entries)
 }
 
-fn archive(
+fn archive_bak(
     target_id: &str,
     step_id: &str,
     dir_to_archive: &str,
@@ -301,6 +304,337 @@ fn archive(
     Ok(())
 }
 
+fn archive(
+    target_id: &str,
+    step_id: &str,
+    from_paths: &Vec<String>,
+    archive_path: &str,
+    exclude_paths: &Vec<String>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use std::io::Read;
+
+    let path = Path::new(archive_path);
+    let extension = path
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+    let action_id = format!("ARCHIVE{}", archive_path);
+
+    Logger::set_action(
+        target_id.to_string(),
+        step_id.to_string(),
+        LogAction {
+            id: action_id.clone(),
+            status: ProgressStatus::Progress,
+            description: String::from("Starting files compression"),
+            progress: ActionProgressType::Spinner,
+            percent: None,
+        },
+    );
+
+    // Build globset once (works with empty exclude_paths)
+    let globset = build_exclude_globset(exclude_paths)?;
+
+    if extension == "zip" {
+        let file = std::fs::File::create(path)?;
+        let mut zip = ZipWriter::new(file);
+        let options = FileOptions::default().compression_method(zip::CompressionMethod::Stored);
+
+        for from in from_paths {
+            let from_path = Path::new(from);
+            if !from_path.exists() {
+                // skip or log missing
+                Logger::set_action(
+                    target_id.to_string(),
+                    step_id.to_string(),
+                    LogAction {
+                        id: action_id.clone(),
+                        status: ProgressStatus::Failed,
+                        description: format!("archive: path doesn't exist {}", from),
+                        progress: ActionProgressType::Spinner,
+                        percent: None,
+                    },
+                );
+                continue;
+            }
+
+            if from_path.is_file() {
+                // Skip if excluded
+                if globset.is_match(from_path) {
+                    continue;
+                }
+
+                let name = from_path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .ok_or("Invalid filename")?
+                    .replace('\\', "/");
+
+                Logger::set_action(
+                    target_id.to_string(),
+                    step_id.to_string(),
+                    LogAction {
+                        id: action_id.clone(),
+                        status: ProgressStatus::Progress,
+                        description: format!("Compressing file: {}", name),
+                        progress: ActionProgressType::Spinner,
+                        percent: None,
+                    },
+                );
+
+                zip.start_file(&name, options)?;
+                let mut f = std::fs::File::open(from_path)?;
+                std::io::copy(&mut f, &mut zip)?;
+            } else if from_path.is_dir() {
+                // Use the helper to get entries already filtered by excludes
+                let entries: Vec<_> = walk_with_excludes(from_path, exclude_paths)?;
+                let total = entries.len();
+                let mut current = 0;
+
+                for entry in entries {
+                    let entry_path = entry.path();
+                    // compute name inside archive relative to the base 'from' directory
+                    let relative = entry_path.strip_prefix(from_path)?;
+                    let name = relative
+                        .to_str()
+                        .ok_or("Failed to convert path to string")?
+                        .replace('\\', "/");
+
+                    current += 1;
+                    // optional progress percent
+                    let percent = if total > 0 { Some(current * 100 / total) } else { None };
+
+                    Logger::set_action(
+                        target_id.to_string(),
+                        step_id.to_string(),
+                        LogAction {
+                            id: action_id.clone(),
+                            status: ProgressStatus::Progress,
+                            description: format!("Compressing: {}", name),
+                            progress: ActionProgressType::Spinner,
+                            percent,
+                        },
+                    );
+
+                    if entry.file_type().is_file() {
+                        zip.start_file(&name, options)?;
+                        let mut f = std::fs::File::open(entry_path)?;
+                        std::io::copy(&mut f, &mut zip)?;
+                    } else if entry.file_type().is_dir() {
+                        let dir_name = format!("{}/", name);
+                        zip.add_directory(dir_name, options)?;
+                    }
+                }
+            }
+        }
+
+        zip.finish()?;
+    } else if archive_path.ends_with(".tar.gz") {
+        let tar_gz = std::fs::File::create(archive_path)?;
+        let enc = GzEncoder::new(tar_gz, Compression::default());
+        let mut tar = tar::Builder::new(enc);
+
+        for from in from_paths {
+            let from_path = Path::new(from);
+            if !from_path.exists() {
+                continue;
+            }
+
+            if from_path.is_file() {
+                if globset.is_match(from_path) {
+                    continue;
+                }
+                let mut file = std::fs::File::open(from_path)?;
+                let name = from_path.file_name().ok_or("Invalid filename")?;
+                tar.append_file(name, &mut file)?;
+                continue;
+            }
+
+            // directory
+            let entries: Vec<_> = walk_with_excludes(from_path, exclude_paths)?;
+            let total = entries.len();
+            let mut current = 0;
+            for entry in entries {
+                let entry_path = entry.path();
+                let mut relative_path = entry_path.strip_prefix(from_path)?;
+                if relative_path.as_os_str().is_empty() {
+                    relative_path = Path::new(".");
+                }
+                let name = relative_path
+                    .to_str()
+                    .ok_or("Failed to convert relative path to str")?
+                    .replace('\\', "/");
+
+                current += 1;
+                let percent = if total > 0 { Some(current * 100 / total) } else { None };
+
+                Logger::set_action(
+                    target_id.to_string(),
+                    step_id.to_string(),
+                    LogAction {
+                        id: action_id.clone(),
+                        status: ProgressStatus::Progress,
+                        description: format!("Compressing: {}", name),
+                        progress: ActionProgressType::Bar,
+                        percent,
+                    },
+                );
+
+                if entry.file_type().is_dir() {
+                    tar.append_dir(relative_path, entry_path)?;
+                } else if entry.file_type().is_file() {
+                    let mut file = std::fs::File::open(entry_path)?;
+                    tar.append_file(relative_path, &mut file)?;
+                }
+            }
+        }
+
+        tar.finish()?;
+    } else if archive_path.ends_with(".tar.zst") {
+        let tar_file = std::fs::File::create(archive_path)?;
+        let mut enc = ZstdEncoder::new(tar_file, 3)?;
+        enc.multithread(num_cpus::get() as u32)?;
+        let mut tar = tar::Builder::new(enc);
+
+        for from in from_paths {
+            let from_path = Path::new(from);
+            if !from_path.exists() {
+                continue;
+            }
+            if from_path.is_file() {
+                if globset.is_match(from_path) {
+                    continue;
+                }
+                let mut file = std::fs::File::open(from_path)?;
+                let name = from_path.file_name().ok_or("Invalid filename")?;
+                tar.append_file(name, &mut file)?;
+                continue;
+            }
+
+            let entries: Vec<_> = walk_with_excludes(from_path, exclude_paths)?;
+            let total = entries.len();
+            let mut current = 0;
+
+            for entry in entries {
+                let entry_path = entry.path();
+                let mut relative_path = entry_path.strip_prefix(from_path)?;
+                if relative_path.as_os_str().is_empty() {
+                    relative_path = Path::new(".");
+                }
+
+                let name = relative_path
+                    .to_str()
+                    .ok_or("Failed to convert relative path to str")?
+                    .replace('\\', "/");
+
+                current += 1;
+                let percent = if total > 0 { Some(current * 100 / total) } else { None };
+
+                Logger::set_action(
+                    target_id.to_string(),
+                    step_id.to_string(),
+                    LogAction {
+                        id: action_id.clone(),
+                        status: ProgressStatus::Progress,
+                        description: format!("Compressing: {}", name),
+                        progress: ActionProgressType::Bar,
+                        percent,
+                    },
+                );
+
+                if entry.file_type().is_dir() {
+                    tar.append_dir(relative_path, entry_path)?;
+                } else if entry.file_type().is_file() {
+                    let mut file = std::fs::File::open(entry_path)?;
+                    tar.append_file(relative_path, &mut file)?;
+                }
+            }
+        }
+
+        tar.finish()?;
+        let enc = tar.into_inner()?;
+        enc.finish()?;
+    } else if archive_path.ends_with(".tar.xz") {
+        let tar_xz = std::fs::File::create(archive_path)?;
+        let enc = XzEncoder::new(tar_xz, 6);
+        let mut tar = tar::Builder::new(enc);
+
+        for from in from_paths {
+            let from_path = Path::new(from);
+            if !from_path.exists() {
+                continue;
+            }
+            if from_path.is_file() {
+                if globset.is_match(from_path) {
+                    continue;
+                }
+                let mut file = std::fs::File::open(from_path)?;
+                let name = from_path.file_name().ok_or("Invalid filename")?;
+                tar.append_file(name, &mut file)?;
+                continue;
+            }
+
+            let entries: Vec<_> = walk_with_excludes(from_path, exclude_paths)?;
+            let total = entries.len();
+            let mut current = 0;
+
+            for entry in entries {
+                let entry_path = entry.path();
+                let mut relative_path = entry_path.strip_prefix(from_path)?;
+                if relative_path.as_os_str().is_empty() {
+                    relative_path = Path::new(".");
+                }
+
+                let name = relative_path
+                    .to_str()
+                    .ok_or("Failed to convert relative path to str")?
+                    .replace('\\', "/");
+
+                current += 1;
+                let percent = if total > 0 { Some(current * 100 / total) } else { None };
+
+                Logger::set_action(
+                    target_id.to_string(),
+                    step_id.to_string(),
+                    LogAction {
+                        id: action_id.clone(),
+                        status: ProgressStatus::Progress,
+                        description: format!("Compressing: {}", name),
+                        progress: ActionProgressType::Bar,
+                        percent,
+                    },
+                );
+
+                if entry.file_type().is_dir() {
+                    tar.append_dir(relative_path, entry_path)?;
+                } else if entry.file_type().is_file() {
+                    let mut file = std::fs::File::open(entry_path)?;
+                    tar.append_file(relative_path, &mut file)?;
+                }
+            }
+        }
+
+        tar.finish()?;
+    } else {
+        return Err(format!("Unsupported archive format: {}", archive_path).into());
+    }
+
+    Logger::set_action(
+        target_id.to_string(),
+        step_id.to_string(),
+        LogAction {
+            id: action_id,
+            status: ProgressStatus::Done,
+            description: String::from("Archive completed"),
+            progress: ActionProgressType::None,
+            percent: Some(100),
+        },
+    );
+
+    Ok(())
+}
+
 impl Action for Archive {
     fn insert_in_files<'a>(
         &'a self,
@@ -310,7 +644,9 @@ impl Action for Archive {
         Box::pin(async move {
             match action {
                 PluginAction::Archive { archive } => {
-                    in_files.push(InFile::Simple(archive.from.clone()));
+                    for path in &archive.from {
+                        in_files.push(path.clone());
+                    }
                 }
                 _ => {}
             }
@@ -346,69 +682,23 @@ impl Action for Archive {
         _maybe_replacements: Option<&'a HashMap<String, String>>,
     ) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>> {
         Box::pin(async move {
-            let mut has_error = false;
-            let from = &in_files[0];
             let to = &out_files[0];
-
             let to_path = PathBuf::from(to);
+
             if !std::fs::exists(&to_path.parent().unwrap()).unwrap() {
                 fs::create_dir_all(&to_path.parent().unwrap()).unwrap();
             }
 
-            let action_id = String::from("ARCHIVE") + from + to;
-            let from_path = PathBuf::from(from);
-            if !from_path.exists() {
-                Logger::set_action(
-                    target_id.to_string(),
-                    step_id.to_string(),
-                    LogAction {
-                        id: action_id.clone(),
-                        status: ProgressStatus::Failed,
-                        description: format!("archive failed: Path doesn't exist {}", from),
-                        progress: ActionProgressType::Spinner,
-                        percent: None,
-                    },
-                );
-
-                return true;
-            }
-            if !from_path.is_dir() {
-                Logger::set_action(
-                    target_id.to_string(),
-                    step_id.to_string(),
-                    LogAction {
-                        id: action_id.clone(),
-                        status: ProgressStatus::Failed,
-                        description: format!("archive failed: Path is not a directory {}", from),
-                        progress: ActionProgressType::Spinner,
-                        percent: None,
-                    },
-                );
-
-                return true;
-            }
-
             let mut exclude_paths = Vec::new();
-            match action {
-                PluginAction::Archive { archive } => {
-                    exclude_paths = archive.exclude.clone().unwrap_or(Vec::new());
-                }
-                _ => {}
+            if let PluginAction::Archive { archive } = action {
+                exclude_paths = archive.exclude.clone().unwrap_or_default();
             }
 
-            match archive(target_id, step_id, from, to, &exclude_paths) {
-                Ok(()) => {
-                    has_error = false;
-                }
-                Err(_) => {
-                    has_error = true;
-                }
-            }
-
+            let has_error = archive(target_id, step_id, in_files, to, &exclude_paths).is_err();
             has_error
         })
     }
     fn clone_box(&self) -> Box<dyn Action + Send + Sync> {
-        Box::new(Self { from: self.from.clone(), to: self.to.clone(), exclude: self.exclude.clone() })
+        Box::new(Self)
     }
 }

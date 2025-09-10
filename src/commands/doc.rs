@@ -1,5 +1,5 @@
-use crate::doc::action::ActionDocEntry;
-use std::{env, fs};
+use crate::doc::action::{ActionDocEntry, TypeDocEntry};
+use std::{env, fs, path::PathBuf};
 use minijinja::render;
 
 pub fn generate() {
@@ -7,8 +7,42 @@ pub fn generate() {
   let documentation_folder_path = repository_path.join("docs");
 
   // Generate actions documentation
+  generate_actions_doc(&documentation_folder_path);
+  
+  // Generate types documentation
+  generate_types_doc(&documentation_folder_path);
+}
 
-  // Remove existing documentation
+pub fn generate_types_doc(documentation_folder_path: &PathBuf) {
+  let types_doc_path = documentation_folder_path.join("types.md");
+  
+  if types_doc_path.exists() {
+    fs::remove_file(&types_doc_path).unwrap();
+  }
+
+  let mut types_documentation = String::from("# Types\n\n");
+  let mut types_summary = String::from("| Name | Description |\n");
+  types_summary.push_str("| ---- | ---------- |\n");
+
+  let mut types_details = String::from("");
+
+  // Iterate over available types
+  for doc in inventory::iter::<TypeDocEntry> {
+    types_summary.push_str(&format!("| {} | {} |\n", doc.name, doc.short_desc));
+    types_details.push_str(&format!("## {}\n\n", doc.name));
+    types_details.push_str(&format!("{}\n\n", doc.short_desc));
+    types_details.push_str(&format!("{}\n\n", doc.description));
+  }
+
+  types_documentation.push_str(&types_summary);
+  types_documentation.push_str("\n\n");
+  types_documentation.push_str(&types_details);
+
+  fs::write(&types_doc_path, types_documentation).unwrap();
+}
+
+pub fn generate_actions_doc(documentation_folder_path: &PathBuf) {
+    // Remove existing documentation
   let actions_doc_folder_path = documentation_folder_path.join("actions");
 
   if actions_doc_folder_path.exists() {

@@ -1,14 +1,11 @@
 use std::{
-    path::{Path, PathBuf},
-    sync::{atomic::{AtomicBool, Ordering}, Mutex},
-    thread::{self, JoinHandle},
-    time::Duration,
+    os::unix::thread::JoinHandleExt, path::{Path, PathBuf}, sync::{atomic::{AtomicBool, Ordering}, Mutex}, thread::{self, JoinHandle}, time::Duration
 };
 
 use crossterm::{cursor::SavePosition, execute};
 use crate::{
     cache,
-    console::{logger::Logger},
+    console::{log, logger::{Logger}},
     graph::{self, generator::get_absolute_target_path},
 };
 use crossbeam_channel::{bounded, Receiver};
@@ -34,7 +31,7 @@ pub async fn run(target: &String, silent: &bool, cwd: &Path, find_root: bool) {
     // Spawn ctrl+c handler in background thread
     let _ = thread::spawn(async move || {
         ctrl_c_events.recv().unwrap();
-        force_exit(&cwd_string, 1).await;
+        exit(&cwd_string, 1).await;
     });
 
     // run the main async task
@@ -57,11 +54,12 @@ async fn main_task(target: &String, cwd: &Path) {
     execute!(stdout, SavePosition).unwrap();
 
     LOGGER_RUNNING.store(true, Ordering::SeqCst);
-    let logger_thread = thread::spawn(|| {
+    let logger_thread: JoinHandle<()> = thread::spawn(|| {
         while LOGGER_RUNNING.load(Ordering::SeqCst) {
             Logger::write();
             thread::sleep(Duration::from_millis(150));
         }
+        Logger::write();
     });
 
     *LOGGER_HANDLE.lock().unwrap() = Some(logger_thread);
@@ -75,6 +73,10 @@ pub async fn exit(cwd: &str, code: i32) {
     if let Some(handle) = LOGGER_HANDLE.lock().unwrap().take() {
         handle.join().unwrap();
     }
+
+    // if code == 0 { // TODO
+    log::info!("Build done");
+    // }
 
     Logger::close();
     force_exit(cwd, code).await;

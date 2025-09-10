@@ -13,6 +13,7 @@ pub trait ActionDoc {
     fn example() -> &'static str;
 }
 
+
 // Define inventory entry
 pub struct ActionDocEntry {
     pub id: &'static str,
@@ -21,5 +22,16 @@ pub struct ActionDocEntry {
     pub example: &'static str,
     pub properties: &'static [PropertyDoc],
 }
-
 inventory::collect!(ActionDocEntry);
+
+pub struct TypeDocEntry {
+    pub name: &'static str,
+    pub short_desc: &'static str,
+    pub description: &'static str,
+}
+
+inventory::collect!(TypeDocEntry);
+
+pub trait DocType {
+    fn entry() -> TypeDocEntry;
+}

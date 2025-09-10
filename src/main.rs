@@ -2,7 +2,7 @@ mod actions;
 mod cache;
 mod commands;
 mod console;
-mod credentials;
+mod secrets;
 mod emake;
 mod graph;
 mod utils;
@@ -30,11 +30,11 @@ use tokio::{
     sync::{Mutex},
 };
 
-use crate::{actions::ActionsStore, console::log, credentials::CredentialsStore};
+use crate::{actions::ActionsStore, console::log, secrets::SecretsStore};
 
 pub static GLOBAL_MUTEXES: Lazy<DashMap<String, Arc<Mutex<()>>>> = Lazy::new(DashMap::new);
 pub static ACTIONS_STORE: Lazy<ActionsStore> = Lazy::new(|| actions::instanciate());
-pub static CREDENTIALS_STORE: Lazy<CredentialsStore> = Lazy::new(|| credentials::instanciate());
+pub static CREDENTIALS_STORE: Lazy<SecretsStore> = Lazy::new(|| secrets::instanciate());
 pub static CACHE_IN_FILE_TO_UPDATE: Lazy<DashSet<(String, String)>> = Lazy::new(DashSet::new);
 pub static CACHE_OUT_FILE_TO_UPDATE: Lazy<DashSet<(String, String)>> = Lazy::new(DashSet::new);
 pub static MULTI_PROGRESS: Lazy<Arc<MultiProgress>> = Lazy::new(|| Arc::new(MultiProgress::new()));

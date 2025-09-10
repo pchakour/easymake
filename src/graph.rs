@@ -25,7 +25,7 @@ impl Display for Action {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InFile {
     pub file: String,
-    pub credentials: Option<String>,
+    pub secrets: Option<String>,
 }
 
 #[derive(Debug, Clone)]

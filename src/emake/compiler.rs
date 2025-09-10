@@ -25,14 +25,14 @@ fn call_glob(cwd: &str, pattern: &String) -> Option<String> {
 }
 
 fn call_credential_password(cwd: &str, emakefile_current_path: &str, credential_name: &String) -> Option<String> {
-    let result_credentials_config = emake::loader::get_target_on_path(
+    let result_secrets_config = emake::loader::get_target_on_path(
         cwd, 
         credential_name, 
         emakefile_current_path,
-        Some(TargetType::Credentials),
+        Some(TargetType::Secrets),
     );
 
-    match result_credentials_config {
+    match result_secrets_config {
         Ok(credential_config) => {
             match credential_config {
                 Target::CredentialEntry(raw_credential) => {
@@ -60,14 +60,14 @@ fn call_credential_password(cwd: &str, emakefile_current_path: &str, credential_
 }
 
 fn call_credential_username(cwd: &str, emakefile_current_path: &str, credential_name: &str) -> Option<String> {
-    let result_credentials_config = emake::loader::get_target_on_path(
+    let result_secrets_config = emake::loader::get_target_on_path(
         cwd, 
         credential_name, 
         emakefile_current_path,
-        Some(TargetType::Credentials),
+        Some(TargetType::Secrets),
     );
 
-    match result_credentials_config {
+    match result_secrets_config {
         Ok(credential_config) => {
             match credential_config {
                 Target::CredentialEntry(raw_credential) => {

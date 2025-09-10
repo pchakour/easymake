@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 #[derive(Debug)]
 pub enum TargetType {
-    Credentials,
+    Secrets,
     Variables,
     Targets,
 }
@@ -32,8 +32,8 @@ fn read_file_content(path: &str) -> String {
 fn target_type_str_to_enum(target_type: &str) -> TargetType {
     if target_type == "targets" {
         return TargetType::Targets;
-    } else if target_type == "credentials" {
-        return TargetType::Credentials;
+    } else if target_type == "secrets" {
+        return TargetType::Secrets;
     } else if target_type == "variables" {
         return TargetType::Variables;
     } else {
@@ -81,53 +81,53 @@ pub fn extract_info_from_path(path: &str, cwd: &str, emakefile_current_path: &st
 
 pub fn get_target_on_path(
     cwd: &str,
-    credentials_path: &str,
+    secrets_path: &str,
     emakefile_current_path: &str,
     maybe_force_type: Option<TargetType>
 ) -> Result<Target, String> {
     // Check if the target exists in the current Emakefile
-    let mut credentials_path_info = extract_info_from_path(credentials_path, cwd, emakefile_current_path);
+    let mut secrets_path_info = extract_info_from_path(secrets_path, cwd, emakefile_current_path);
 
-    if let Ok(emakefile_exists) = std::fs::exists(&credentials_path_info.emakefile_path) {
+    if let Ok(emakefile_exists) = std::fs::exists(&secrets_path_info.emakefile_path) {
         if !emakefile_exists {
-            return Err(format!("Emakefile {} doesn't exist", credentials_path_info.emakefile_path.to_str().unwrap()));
+            return Err(format!("Emakefile {} doesn't exist", secrets_path_info.emakefile_path.to_str().unwrap()));
         }
     }
 
-    let emakefile = emake::loader::load_file(&credentials_path_info.emakefile_path.to_str().unwrap());
+    let emakefile = emake::loader::load_file(&secrets_path_info.emakefile_path.to_str().unwrap());
 
     if let Some(force_type) = maybe_force_type {
-        credentials_path_info.target_type = force_type;
+        secrets_path_info.target_type = force_type;
     }
 
-    match credentials_path_info.target_type {
+    match secrets_path_info.target_type {
         TargetType::Targets => {
-            if emakefile.targets.contains_key(&credentials_path_info.target_name) {
-                return Ok(Target::TargetEntry(emakefile.targets.get(&credentials_path_info.target_name).unwrap().to_owned()));
+            if emakefile.targets.contains_key(&secrets_path_info.target_name) {
+                return Ok(Target::TargetEntry(emakefile.targets.get(&secrets_path_info.target_name).unwrap().to_owned()));
             } else {
-                return Err(format!("No target named {} found in Emakefile {}", credentials_path_info.target_name, credentials_path_info.emakefile_path.to_str().unwrap()));
+                return Err(format!("No target named {} found in Emakefile {}", secrets_path_info.target_name, secrets_path_info.emakefile_path.to_str().unwrap()));
             }
         },
-        TargetType::Credentials => {
-            if let Some(credentials) = emakefile.credentials {
-                if credentials.contains_key(&credentials_path_info.target_name) {
-                    return Ok(Target::CredentialEntry(credentials.get(&credentials_path_info.target_name).unwrap().to_owned()));
+        TargetType::Secrets => {
+            if let Some(secrets) = emakefile.secrets {
+                if secrets.contains_key(&secrets_path_info.target_name) {
+                    return Ok(Target::CredentialEntry(secrets.get(&secrets_path_info.target_name).unwrap().to_owned()));
                 } else {
-                    return Err(format!("No credentials named {} found in Emakefile {}", credentials_path_info.target_name, credentials_path_info.emakefile_path.to_str().unwrap()));
+                    return Err(format!("No secrets named {} found in Emakefile {}", secrets_path_info.target_name, secrets_path_info.emakefile_path.to_str().unwrap()));
                 }
             } else {
-                return Err(format!("No credentials defined in Emakefile {}. Expected a credential named {}", credentials_path_info.emakefile_path.to_str().unwrap(), credentials_path_info.target_name));
+                return Err(format!("No secrets defined in Emakefile {}. Expected a credential named {}", secrets_path_info.emakefile_path.to_str().unwrap(), secrets_path_info.target_name));
             }
         },
         TargetType::Variables => {
             if let Some(variables) = emakefile.variables {
-                if variables.contains_key(&credentials_path_info.target_name) {
-                    return Ok(Target::VariableEntry(variables.get(&credentials_path_info.target_name).unwrap().to_owned()));
+                if variables.contains_key(&secrets_path_info.target_name) {
+                    return Ok(Target::VariableEntry(variables.get(&secrets_path_info.target_name).unwrap().to_owned()));
                 } else {
-                    return Err(format!("No variable named {} found in Emakefile {}", credentials_path_info.target_name, credentials_path_info.emakefile_path.to_str().unwrap()));
+                    return Err(format!("No variable named {} found in Emakefile {}", secrets_path_info.target_name, secrets_path_info.emakefile_path.to_str().unwrap()));
                 }
             } else {
-                return Err(format!("No variables defined in Emakefile {}. Expected a variable named {}", credentials_path_info.emakefile_path.to_str().unwrap(), credentials_path_info.target_name));
+                return Err(format!("No variables defined in Emakefile {}. Expected a variable named {}", secrets_path_info.emakefile_path.to_str().unwrap(), secrets_path_info.target_name));
             }
         }
     }

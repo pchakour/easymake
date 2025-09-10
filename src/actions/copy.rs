@@ -12,7 +12,7 @@ use crate::{
 use super::Action;
 pub static ID: &str = "copy";
 
-#[derive(ActionDoc, Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(ActionDoc, Debug, Clone, Serialize, Deserialize)]
 #[action_doc(
     id = "copy",
     short_desc = "Copy files or folders to a specific destination",
@@ -37,12 +37,15 @@ targets:
     
 "
 )]
-pub struct Copy {
+pub struct CopyAction {
     #[action_prop(description = "A list of source files to copy", required = true)]
     pub from: Vec<String>,
     #[action_prop(description = "A list of destination files. The number of destinations must be one to copy all sources in the destination or must match the number of destination", required = true)]
     pub to: Vec<String>,
 }
+
+pub struct Copy;
+
 
 impl Action for Copy {
     fn insert_in_files<'a>(
@@ -186,6 +189,6 @@ impl Action for Copy {
         })
     }
     fn clone_box(&self) -> Box<dyn Action + Send + Sync> {
-        Box::new(Self { from: self.from.clone(), to: self.to.clone() })
+        Box::new(Self)
     }
 }

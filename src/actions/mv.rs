@@ -1,3 +1,4 @@
+use config_macros::ActionDoc;
 use fs_extra::{
     copy_items_with_progress,
     dir::{CopyOptions, TransitProcessResult},
@@ -18,9 +19,27 @@ use crate::{
 use super::Action;
 pub static ID: &str = "move";
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(ActionDoc, Debug, Clone, Serialize, Deserialize)]
+#[action_doc(
+    id = "move",
+    short_desc = "Move files",
+    example = "
+targets:
+    extraction_example:
+        steps:
+            - description: Retrieve and move url folder
+              move: 
+                from: 
+                    - https://github.com/pchakour/easymake/archive/refs/heads/main.zip
+                to: \"{{ EMAKE_OUT_DIR }}/easymake_moved\"
+    
+"
+)]
 pub struct MoveAction {
-    from: Vec<String>,
+    #[action_prop(description = "A list of source files to move", required = true)]
+    from: Vec<InFile>,
+    #[action_prop(description = "The destination to move source files. \
+    Can be a folder or a filename if the from property contains only one file. The folder will be automatically created if doesn't exist", required = true)]
     to: String,
 }
 
@@ -36,7 +55,7 @@ impl Action for Move {
             match action {
                 PluginAction::Move { mv } => {
                     for file in &mv.from {
-                        in_files.push(InFile::Simple(file.clone()));
+                        in_files.push(file.clone());
                     }
                 }
                 _ => {}

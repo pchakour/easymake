@@ -1,6 +1,6 @@
 use proc_macro::TokenStream;
-use syn::{parse_macro_input, Data, DeriveInput, Fields, Lit, Meta, NestedMeta};
 use quote::quote;
+use syn::{parse_macro_input, Data, DataEnum, DataStruct, DeriveInput, Fields, Lit, Meta, NestedMeta};
 
 #[proc_macro_derive(ActionDoc, attributes(action_doc, action_prop))]
 pub fn derive_action_doc(input: TokenStream) -> TokenStream {
@@ -44,7 +44,7 @@ pub fn derive_action_doc(input: TokenStream) -> TokenStream {
                 let mut field_desc = String::new();
                 let mut field_required = false;
                 let ty = &field.ty;
-                let mut field_type = quote!(#ty).to_string();
+                let field_type = quote!(#ty).to_string();
                 for attr in &field.attrs {
                     if attr.path.is_ident("action_prop") {
                         if let Ok(Meta::List(meta_list)) = attr.parse_meta() {
@@ -68,7 +68,8 @@ pub fn derive_action_doc(input: TokenStream) -> TokenStream {
 
                 let field_name_lit = syn::LitStr::new(&field_name, proc_macro2::Span::call_site());
                 let field_desc_lit = syn::LitStr::new(&field_desc, proc_macro2::Span::call_site());
-                let field_required_lit = syn::LitBool::new(field_required, proc_macro2::Span::call_site());
+                let field_required_lit =
+                    syn::LitBool::new(field_required, proc_macro2::Span::call_site());
                 let field_type_lit = syn::LitStr::new(&field_type, proc_macro2::Span::call_site());
 
                 property_tokens.push(quote! {
@@ -105,6 +106,60 @@ pub fn derive_action_doc(input: TokenStream) -> TokenStream {
                 properties: &[
                     #(#property_tokens),*
                 ],
+            }
+        }
+    };
+
+    TokenStream::from(expanded)
+}
+
+#[proc_macro_derive(DocType, attributes(doc_type))]
+pub fn derive_doc_type(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    let name = &input.ident;
+
+    let mut short_desc = "";
+    let mut description = "";
+
+    // Parse #[doc_type(short_desc = "...", description = "...")]
+    for attr in &input.attrs {
+        if attr.path.is_ident("doc_type") {
+            if let Ok(Meta::List(meta_list)) = attr.parse_meta() {
+                for nested in meta_list.nested {
+                    if let NestedMeta::Meta(Meta::NameValue(nv)) = nested {
+                        if nv.path.is_ident("short_desc") {
+                            if let Lit::Str(lit) = nv.lit {
+                                short_desc = Box::leak(lit.value().into_boxed_str());
+                            }
+                        } else if nv.path.is_ident("description") {
+                            if let Lit::Str(lit) = nv.lit {
+                                description = Box::leak(lit.value().into_boxed_str());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let name_lit = name.to_string();
+
+    let expanded = quote! {
+        impl crate::doc::action::DocType for #name {
+            fn entry() -> crate::doc::action::TypeDocEntry {
+                crate::doc::action::TypeDocEntry {
+                    name: #name_lit,
+                    short_desc: #short_desc,
+                    description: #description,
+                }
+            }
+        }
+
+        inventory::submit! {
+            crate::doc::action::TypeDocEntry {
+                name: #name_lit,
+                short_desc: #short_desc,
+                description: #description,
             }
         }
     };

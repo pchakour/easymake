@@ -14,7 +14,8 @@ targets:
     steps:
         - description: 'Example files compression'
           archive:
-            from: from_path
+            from:
+                - from_path
             to: to_path
 
 ```
@@ -23,6 +24,6 @@ targets:
 
 | Name | Description | Type | Required |
 | ---- | ----------- | -- | -- |
-| from | Files to compress | String | true |
+| from | Files to compress | Vec < InFile > | true |
 | to | Destination | String | true |
 | exclude | Exclude a list of file | Option < Vec < String > > | false |

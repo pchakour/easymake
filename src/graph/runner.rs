@@ -12,7 +12,7 @@ use crate::emake::Step;
 use crate::graph::generator::{get_absolute_target_path, to_emakefile_path};
 use crate::utils::get_absolute_file_path;
 use crate::{
-    cache, credentials, emake, get_mutex_for_id, graph, utils, ACTIONS_STORE,
+    cache, secrets, emake, get_mutex_for_id, graph, utils, ACTIONS_STORE,
     CACHE_IN_FILE_TO_UPDATE, CACHE_OUT_FILE_TO_UPDATE, CREDENTIALS_STORE, MULTI_PROGRESS,
 };
 use console::style;
@@ -46,37 +46,37 @@ async fn download_file(
     output_path: &str,
     cwd: &str,
     emakefile_cwd: &str,
-    maybe_credentials_key: &Option<String>,
+    maybe_secrets_key: &Option<String>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
-    let mut maybe_credentials: Option<credentials::PlainCredentials> = None;
-    if let Some(credentials_key) = maybe_credentials_key {
-        let result_credentials_config = emake::loader::get_target_on_path(
+    let mut maybe_secrets: Option<secrets::PlainSecrets> = None;
+    if let Some(secrets_key) = maybe_secrets_key {
+        let result_secrets_config = emake::loader::get_target_on_path(
             cwd,
-            credentials_key,
+            secrets_key,
             emakefile_cwd,
-            Some(TargetType::Credentials),
+            Some(TargetType::Secrets),
         );
 
-        match result_credentials_config {
-            Ok(credentials_config) => match credentials_config {
-                Target::CredentialEntry(credentials_config) => {
-                    if !credentials_config.contains_key("type") {
-                        log::error!("The credential {} must contains a type", credentials_key);
+        match result_secrets_config {
+            Ok(secrets_config) => match secrets_config {
+                Target::CredentialEntry(secrets_config) => {
+                    if !secrets_config.contains_key("type") {
+                        log::error!("The credential {} must contains a type", secrets_key);
                         process::exit(1);
                     }
-                    let credentials_type =
-                        String::from(credentials_config.get("type").unwrap().as_str().unwrap());
-                    let maybe_credentials_plugin = CREDENTIALS_STORE.get(&credentials_type);
-                    if let Some(credentials_plugin) = maybe_credentials_plugin {
-                        maybe_credentials =
-                            Some(credentials_plugin.extract(cwd, &credentials_config));
+                    let secrets_type =
+                        String::from(secrets_config.get("type").unwrap().as_str().unwrap());
+                    let maybe_secrets_plugin = CREDENTIALS_STORE.get(&secrets_type);
+                    if let Some(secrets_plugin) = maybe_secrets_plugin {
+                        maybe_secrets =
+                            Some(secrets_plugin.extract(cwd, &secrets_config));
                     } else {
-                        log::error!("The credential type {} does not exist", credentials_type);
+                        log::error!("The credential type {} does not exist", secrets_type);
                         process::exit(1);
                     }
                 }
                 _ => {
-                    log::error!("The specified path {} is not a credential", credentials_key);
+                    log::error!("The specified path {} is not a credential", secrets_key);
                     std::process::exit(1);
                 }
             },
@@ -97,8 +97,8 @@ async fn download_file(
     let client = Client::new();
     let mut request = client.get(url);
 
-    if let Some(credentials) = maybe_credentials {
-        request = request.basic_auth(credentials.username, credentials.password);
+    if let Some(secrets) = maybe_secrets {
+        request = request.basic_auth(secrets.username, secrets.password);
     }
 
     let response = request.send().await?;
@@ -158,7 +158,7 @@ async fn download_file(
             id: action_id.clone(),
             description: format!("File {} downloaded", url),
             status: ProgressStatus::Done,
-            progress: ActionProgressType::Bar,
+            progress: ActionProgressType::None,
             percent: None,
         },
     );
@@ -217,9 +217,9 @@ async fn get_real_in_files<'a>(
 
         match &in_file {
             emake::InFile::Simple(src) => file_path = src,
-            emake::InFile::Detailed(in_file_entry) => {
-                file_path = &in_file_entry.file;
-                file_credentials = in_file_entry.clone().credentials;
+            emake::InFile::Detailed { file: detailed_file, credentials: detailed_credentials} => {
+                file_path = &detailed_file;
+                file_credentials = detailed_credentials.clone();
             }
         }
 

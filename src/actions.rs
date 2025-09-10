@@ -1,7 +1,7 @@
 use std::{collections::{HashMap}, future::Future, pin::Pin};
 use crate::{emake::{InFile, PluginAction}, graph::generator::to_footprint_path};
 
-pub mod cmd;
+pub mod shell;
 pub mod copy;
 pub mod extract;
 pub mod mv;
@@ -67,7 +67,7 @@ impl ActionsStore {
 
     pub fn get(&self, action: &PluginAction) -> Option<&Box<dyn Action + Send + Sync>> {
         match action {
-            PluginAction::Cmd { cmd: _ } => self.actions.get(cmd::ID),
+            PluginAction::Shell { shell: _ } => self.actions.get(shell::ID),
             PluginAction::Copy { copy: _ } => self.actions.get(copy::ID),
             PluginAction::Extract { extract: _ } => self.actions.get(extract::ID),
             PluginAction::Move { mv: _ } => self.actions.get(mv::ID),
@@ -81,10 +81,10 @@ pub fn instanciate() -> ActionsStore {
     ActionsStore {
         actions: HashMap::new(),
     }
-    .add(&String::from(cmd::ID), Box::new(cmd::Cmd{..Default::default()}))
-    .add(&String::from(copy::ID), Box::new(copy::Copy{..Default::default()}))
+    .add(&String::from(shell::ID), Box::new(shell::Shell))
+    .add(&String::from(copy::ID), Box::new(copy::Copy))
     .add(&String::from(extract::ID), Box::new(extract::Extract))
     .add(&String::from(mv::ID), Box::new(mv::Move))
     .add(&String::from(remove::ID), Box::new(remove::Remove))
-    .add(&String::from(archive::ID), Box::new(archive::Archive{..Default::default()}))
+    .add(&String::from(archive::ID), Box::new(archive::Archive))
 }
