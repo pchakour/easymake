@@ -1,6 +1,17 @@
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{parse_macro_input, Data, DataEnum, DataStruct, DeriveInput, Fields, Lit, Meta, NestedMeta};
+use syn::{parse_macro_input, Data, DeriveInput, Fields, Lit, Meta, NestedMeta};
+
+use crate::secrets::secret_doc_macro;
+
+mod secrets;
+
+
+#[proc_macro_derive(SecretDoc, attributes(secret_doc))]
+pub fn derive_secret_doc(input: TokenStream) -> TokenStream {
+    secret_doc_macro(input)
+}
+
 
 #[proc_macro_derive(ActionDoc, attributes(action_doc, action_prop))]
 pub fn derive_action_doc(input: TokenStream) -> TokenStream {

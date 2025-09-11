@@ -1,10 +1,24 @@
 use std::collections::HashMap;
 
+use config_macros::SecretDoc;
+
 use crate::{console::log, secrets::PlainSecrets};
 
 use super::Secrets;
 pub static ID: &str = "plain";
 
+#[derive(SecretDoc)]
+#[secret_doc(
+    id = "plain",
+    short_desc = "Store your secrets as plain",
+    example = "
+secrets:
+  my_deep_secret:
+    type: plain
+    username: my_username
+    password: my_password
+"
+)]
 pub struct Plain;
 
 const USERNAME_KEY: &str = "username";
