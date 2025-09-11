@@ -1,3 +1,5 @@
+# Easymake
+
 ## Emake folder
 
 When the emake build is started, emake will create an `.emake` folder inside your project.

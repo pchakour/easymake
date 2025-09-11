@@ -1,3 +1,5 @@
+# Easymake
+
 ## Secret: plain
 
 Store your secrets as plain

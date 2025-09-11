@@ -1,3 +1,5 @@
+# Easymake
+
 ## Types
 
 | Name | Description |
