@@ -1,11 +1,11 @@
-# Action: shell
+## Action: shell
 
-## Description
+### Description
 
 Execute shell command.
 The cmd property allow to use `in_files` and `out_files` as variables.
 
-## Example
+### Example
 
 ```yaml
 
@@ -31,7 +31,7 @@ targets:
 
 ```
 
-## Configuration options
+### Configuration options
 
 | Name | Description | Type | Required |
 | ---- | ----------- | -- | -- |

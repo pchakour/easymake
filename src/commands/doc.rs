@@ -39,7 +39,7 @@ pub fn generate_secret_doc(documentation_folder_path: &PathBuf) {
 
     fs::create_dir(&secrets_doc_folder).unwrap();
 
-    let mut secrets_documentation = String::from("# Secrets\n\n");
+    let mut secrets_documentation = String::from("## Secrets\n\n");
     secrets_documentation.push_str("| Name | Description |\n");
     secrets_documentation.push_str("| --- | --- |\n");
 
@@ -49,7 +49,7 @@ pub fn generate_secret_doc(documentation_folder_path: &PathBuf) {
             doc.id, doc.id, doc.short_desc
         ));
 
-        let mut secret_doc = String::from(format!("# Secret: {}\n\n", doc.id));
+        let mut secret_doc = String::from(format!("## Secret: {}\n\n", doc.id));
         secret_doc.push_str(&format!(
             "{}\n\n{}\n\nExample:\n```yaml\n{}\n```",
             doc.short_desc, doc.description, doc.example
@@ -70,7 +70,7 @@ pub fn generate_types_doc(documentation_folder_path: &PathBuf) {
         fs::remove_file(&types_doc_path).unwrap();
     }
 
-    let mut types_documentation = String::from("# Types\n\n");
+    let mut types_documentation = String::from("## Types\n\n");
     let mut types_summary = String::from("| Name | Description |\n");
     types_summary.push_str("| ---- | ---------- |\n");
 
@@ -79,7 +79,7 @@ pub fn generate_types_doc(documentation_folder_path: &PathBuf) {
     // Iterate over available types
     for doc in inventory::iter::<TypeDocEntry> {
         types_summary.push_str(&format!("| {} | {} |\n", doc.name, doc.short_desc));
-        types_details.push_str(&format!("## {}\n\n", doc.name));
+        types_details.push_str(&format!("### {}\n\n", doc.name));
         types_details.push_str(&format!("{}\n\n", doc.short_desc));
         types_details.push_str(&format!("{}\n\n", doc.description));
     }
@@ -117,13 +117,13 @@ pub fn generate_actions_doc(documentation_folder_path: &PathBuf) {
 
         // Prepare the file content
         let mut content = String::from("");
-        content.push_str(&format!("# Action: {}\n\n", doc.id));
+        content.push_str(&format!("## Action: {}\n\n", doc.id));
         content.push_str(&format!(
-            "## Description\n\n{}\n{}\n\n",
+            "### Description\n\n{}\n{}\n\n",
             doc.short_desc, doc.description
         ));
-        content.push_str(&format!("## Example\n\n```yaml\n{}\n```\n\n", doc.example));
-        content.push_str(&format!("## Configuration options\n\n"));
+        content.push_str(&format!("### Example\n\n```yaml\n{}\n```\n\n", doc.example));
+        content.push_str(&format!("### Configuration options\n\n"));
         content.push_str("| Name | Description | Type | Required |\n");
         content.push_str(&format!("| ---- | ----------- | -- | -- |\n"));
 

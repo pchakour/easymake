@@ -1,4 +1,4 @@
-# Actions
+## Actions
 
 | Name | Description |
 | ---- | ---------- |

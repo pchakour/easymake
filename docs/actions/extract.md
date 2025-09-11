@@ -1,11 +1,11 @@
-# Action: extract
+## Action: extract
 
-## Description
+### Description
 
 Extract archive
 Support archive are: zip, tar.gz and tar.xz
 
-## Example
+### Example
 
 ```yaml
 
@@ -25,7 +25,7 @@ targets:
 
 ```
 
-## Configuration options
+### Configuration options
 
 | Name | Description | Type | Required |
 | ---- | ----------- | -- | -- |

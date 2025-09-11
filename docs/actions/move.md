@@ -1,11 +1,11 @@
-# Action: move
+## Action: move
 
-## Description
+### Description
 
 Move files
 
 
-## Example
+### Example
 
 ```yaml
 
@@ -22,7 +22,7 @@ targets:
 
 ```
 
-## Configuration options
+### Configuration options
 
 | Name | Description | Type | Required |
 | ---- | ----------- | -- | -- |

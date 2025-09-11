@@ -1,11 +1,11 @@
-# Action: copy
+## Action: copy
 
-## Description
+### Description
 
 Copy files or folders to a specific destination
 
 
-## Example
+### Example
 
 ```yaml
 
@@ -31,7 +31,7 @@ targets:
 
 ```
 
-## Configuration options
+### Configuration options
 
 | Name | Description | Type | Required |
 | ---- | ----------- | -- | -- |

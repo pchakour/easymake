@@ -1,11 +1,11 @@
-# Types
+## Types
 
 | Name | Description |
 | ---- | ---------- |
 | InFile | An input file definition |
 
 
-## InFile
+### InFile
 
 An input file definition
 

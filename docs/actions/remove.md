@@ -1,11 +1,11 @@
-# Action: remove
+## Action: remove
 
-## Description
+### Description
 
 Remove a list of paths
 
 
-## Example
+### Example
 
 ```yaml
 
@@ -28,7 +28,7 @@ targets:
 
 ```
 
-## Configuration options
+### Configuration options
 
 | Name | Description | Type | Required |
 | ---- | ----------- | -- | -- |

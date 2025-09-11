@@ -1,11 +1,11 @@
-# Action: archive
+## Action: archive
 
-## Description
+### Description
 
 Compress your files as an archive
 
 
-## Example
+### Example
 
 ```yaml
 
@@ -20,7 +20,7 @@ targets:
 
 ```
 
-## Configuration options
+### Configuration options
 
 | Name | Description | Type | Required |
 | ---- | ----------- | -- | -- |
