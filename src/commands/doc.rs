@@ -51,7 +51,7 @@ pub fn generate_secret_doc(documentation_folder_path: &PathBuf) {
 
         let mut secret_doc = String::from(format!("# Secret: {}\n\n", doc.id));
         secret_doc.push_str(&format!(
-            "{}\n\n{}\n\nExample:\n{}",
+            "{}\n\n{}\n\nExample:\n```yaml\n{}\n```",
             doc.short_desc, doc.description, doc.example
         ));
         fs::write(&secrets_doc_folder.join(format!("{}.md", doc.id)), secret_doc).unwrap();
