@@ -2,7 +2,7 @@
 
 ## Secret: plain
 
-Store your secrets as plain
+Plain secret, use only for dev purpose
 
 
 
@@ -12,7 +12,6 @@ Example:
 secrets:
   my_deep_secret:
     type: plain
-    username: my_username
-    password: my_password
+    secret: my_secret_in_base64
 
 ```

@@ -8,7 +8,7 @@ use crate::actions::{archive, copy, extract, mv, remove, shell};
 pub mod compiler;
 pub mod loader;
 
-pub type CredentialEntry = HashMap<String, Value>;
+pub type SecretEntry = HashMap<String, Value>;
 pub type VariableEntry = String;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -73,8 +73,14 @@ pub enum InFile {
     Simple(String),
     Detailed {
         file: String,
-        credentials: Option<String>,
+        credentials: Option<Credentials>,
     },
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct Credentials {
+    pub username: String,
+    pub password: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -120,7 +126,7 @@ pub enum PluginAction {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Emakefile {
     pub path: Option<String>,
-    pub secrets: Option<HashMap<String, CredentialEntry>>,
+    pub secrets: Option<HashMap<String, SecretEntry>>,
     pub variables: Option<HashMap<String, VariableEntry>>,
     pub targets: HashMap<String, Target>,
 }

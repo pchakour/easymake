@@ -2,15 +2,15 @@ mod actions;
 mod cache;
 mod commands;
 mod console;
-mod secrets;
-mod emake;
-mod graph;
-mod utils;
-mod errors;
 mod doc;
+mod emake;
+mod errors;
+mod graph;
+mod secrets;
+mod utils;
 
-use clap::{arg, Command, Parser};
 use ::console::style;
+use clap::{arg, Command, Parser};
 use indicatif::MultiProgress;
 use std::{env, fs, path::Path, sync::Arc};
 
@@ -26,9 +26,7 @@ struct Args {
 
 use dashmap::{DashMap, DashSet};
 use once_cell::sync::Lazy;
-use tokio::{
-    sync::{Mutex},
-};
+use tokio::sync::Mutex;
 
 use crate::{actions::ActionsStore, console::log, secrets::SecretsStore};
 
@@ -40,11 +38,11 @@ pub static CACHE_OUT_FILE_TO_UPDATE: Lazy<DashSet<(String, String)>> = Lazy::new
 pub static MULTI_PROGRESS: Lazy<Arc<MultiProgress>> = Lazy::new(|| Arc::new(MultiProgress::new()));
 
 pub async fn get_mutex_for_id(id: &str) -> Arc<Mutex<()>> {
-    GLOBAL_MUTEXES.entry(id.to_string())
+    GLOBAL_MUTEXES
+        .entry(id.to_string())
         .or_insert_with(|| Arc::new(Mutex::new(())))
         .clone()
 }
-
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() {
@@ -64,9 +62,22 @@ async fn main() {
                 .arg(arg!([target] "Target to build").required(true))
                 .arg(arg!(--notsilent "Dispay all outputs").required(false)),
         )
+        .subcommand(Command::new("doc").about("Generate documentation"))
         .subcommand(
-            Command::new("doc")
-                .about("Generate documentation")
+            Command::new("keyring")
+                .about("Manage password with local secrets manager")
+                .subcommand(
+                    Command::new("store")
+                        .about("Store a secret")
+                        .arg(arg!([service] "Service name").required(true))
+                        .arg(arg!([name] "Secret name").required(true)),
+                )
+                .subcommand(
+                    Command::new("clear")
+                        .about("Remove a secret")
+                        .arg(arg!([service] "Service name").required(true))
+                        .arg(arg!([name] "Secret name").required(true)),
+                ),
         )
         .get_matches();
 
@@ -76,7 +87,10 @@ async fn main() {
         cwd = Path::new(&fs::canonicalize(&custom_cwd).unwrap().to_str().unwrap()).to_path_buf();
     }
 
-    log::text!("{}", style("=============== Emake project under GPLv3 Licence ================").magenta());
+    log::text!(
+        "{}",
+        style("=============== Emake project under GPLv3 Licence ================").magenta()
+    );
 
     cache::create_cache_dir(cwd.to_str().unwrap()).await;
     commands::run_command(&matches, &cwd).await;

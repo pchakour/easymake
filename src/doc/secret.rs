@@ -7,6 +7,7 @@ pub trait SecretDoc {
 
 
 // Define inventory entry
+#[derive(Debug)]
 pub struct SecretDocEntry {
     pub id: &'static str,
     pub short_desc: &'static str,

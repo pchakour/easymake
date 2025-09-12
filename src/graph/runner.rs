@@ -8,12 +8,12 @@ use crate::console::logger::{
     ActionProgressType, LogAction, LogStep, LogTarget, Logger, ProgressStatus,
 };
 use crate::emake::loader::{extract_info_from_path, Target, TargetType};
-use crate::emake::Step;
+use crate::emake::{Credentials, Step};
 use crate::graph::generator::{get_absolute_target_path, to_emakefile_path};
 use crate::utils::get_absolute_file_path;
 use crate::{
-    cache, secrets, emake, get_mutex_for_id, graph, utils, ACTIONS_STORE,
-    CACHE_IN_FILE_TO_UPDATE, CACHE_OUT_FILE_TO_UPDATE, CREDENTIALS_STORE, MULTI_PROGRESS,
+    cache, emake, get_mutex_for_id, graph, secrets, utils, ACTIONS_STORE, CACHE_IN_FILE_TO_UPDATE,
+    CACHE_OUT_FILE_TO_UPDATE, CREDENTIALS_STORE, MULTI_PROGRESS,
 };
 use console::style;
 use dashmap::DashMap;
@@ -46,37 +46,51 @@ async fn download_file(
     output_path: &str,
     cwd: &str,
     emakefile_cwd: &str,
-    maybe_secrets_key: &Option<String>,
+    maybe_credentials: &Option<Credentials>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
-    let mut maybe_secrets: Option<secrets::PlainSecrets> = None;
-    if let Some(secrets_key) = maybe_secrets_key {
-        let result_secrets_config = emake::loader::get_target_on_path(
+    let mut maybe_username_secret: Option<secrets::PlainSecret> = None;
+    let mut maybe_password_secret: Option<secrets::PlainSecret> = None;
+    if let Some(credentials) = maybe_credentials {
+        let result_username_secret = emake::loader::get_target_on_path(
             cwd,
-            secrets_key,
+            &credentials.username,
             emakefile_cwd,
             Some(TargetType::Secrets),
         );
 
-        match result_secrets_config {
-            Ok(secrets_config) => match secrets_config {
-                Target::CredentialEntry(secrets_config) => {
-                    if !secrets_config.contains_key("type") {
-                        log::error!("The credential {} must contains a type", secrets_key);
+        let mut maybe_result_password_secret: Option<Result<emake::loader::Target, std::string::String>> =
+            None;
+        if let Some(credential_password) = &credentials.password {
+            maybe_result_password_secret = Some(emake::loader::get_target_on_path(
+                cwd,
+                &credential_password,
+                emakefile_cwd,
+                Some(TargetType::Secrets),
+            ));
+        }
+
+        match result_username_secret {
+            Ok(username_secret) => match username_secret {
+                Target::SecretEntry(secret_config) => {
+                    if !secret_config.contains_key("type") {
+                        log::error!("The secret {} must contains a type", credentials.username);
                         process::exit(1);
                     }
-                    let secrets_type =
-                        String::from(secrets_config.get("type").unwrap().as_str().unwrap());
-                    let maybe_secrets_plugin = CREDENTIALS_STORE.get(&secrets_type);
-                    if let Some(secrets_plugin) = maybe_secrets_plugin {
-                        maybe_secrets =
-                            Some(secrets_plugin.extract(cwd, &secrets_config));
+                    let secret_type =
+                        String::from(secret_config.get("type").unwrap().as_str().unwrap());
+                    let maybe_secret_plugin = CREDENTIALS_STORE.get(&secret_type);
+                    if let Some(secret_plugin) = maybe_secret_plugin {
+                        maybe_username_secret = Some(secret_plugin.extract(cwd, &secret_config));
                     } else {
-                        log::error!("The credential type {} does not exist", secrets_type);
+                        log::error!("The credential type {} does not exist", secret_type);
                         process::exit(1);
                     }
                 }
                 _ => {
-                    log::error!("The specified path {} is not a credential", secrets_key);
+                    log::error!(
+                        "The specified path {} is not a credential",
+                        credentials.username
+                    );
                     std::process::exit(1);
                 }
             },
@@ -85,7 +99,41 @@ async fn download_file(
                 std::process::exit(1);
             }
         }
+
+        if let Some(result_password_secret) = maybe_result_password_secret {
+            match result_password_secret {
+                Ok(password_secret) => match password_secret {
+                    Target::SecretEntry(secret_config) => {
+                        if !secret_config.contains_key("type") {
+                            log::error!("The secret {:?} must contains a type", credentials.password);
+                            process::exit(1);
+                        }
+                        let secret_type =
+                            String::from(secret_config.get("type").unwrap().as_str().unwrap());
+                        let maybe_secret_plugin = CREDENTIALS_STORE.get(&secret_type);
+                        if let Some(secret_plugin) = maybe_secret_plugin {
+                            maybe_password_secret = Some(secret_plugin.extract(cwd, &secret_config));
+                        } else {
+                            log::error!("The credential type {} does not exist", secret_type);
+                            process::exit(1);
+                        }
+                    }
+                    _ => {
+                        log::error!(
+                            "The specified path {:?} is not a credential",
+                            credentials.password
+                        );
+                        std::process::exit(1);
+                    }
+                },
+                Err(error) => {
+                    log::error!("{}", error);
+                    std::process::exit(1);
+                }
+            }
+        }
     }
+
 
     // Validate URL
     let parsed_url: Url = Url::parse(url)?;
@@ -97,8 +145,8 @@ async fn download_file(
     let client = Client::new();
     let mut request = client.get(url);
 
-    if let Some(secrets) = maybe_secrets {
-        request = request.basic_auth(secrets.username, secrets.password);
+    if let Some(username_secret) = maybe_username_secret {
+        request = request.basic_auth(username_secret, maybe_password_secret);
     }
 
     let response = request.send().await?;
@@ -217,7 +265,10 @@ async fn get_real_in_files<'a>(
 
         match &in_file {
             emake::InFile::Simple(src) => file_path = src,
-            emake::InFile::Detailed { file: detailed_file, credentials: detailed_credentials} => {
+            emake::InFile::Detailed {
+                file: detailed_file,
+                credentials: detailed_credentials,
+            } => {
                 file_path = &detailed_file;
                 file_credentials = detailed_credentials.clone();
             }
@@ -572,7 +623,7 @@ pub fn run_target<'a>(
             &emakefile_path.to_string_lossy().to_string(),
         );
 
-        let target = emakefile.targets.get(&target_info.target_name).unwrap();
+        let target = emakefile.targets.get(&target_info.unwrap().target_name).unwrap();
         if let Some(deps) = &target.deps {
             let mut dependencies_tasks: Vec<JoinHandle<()>> = Vec::new();
 

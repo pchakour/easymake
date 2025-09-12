@@ -107,7 +107,7 @@ where
         &emakefile_path.to_string_lossy().to_string(),
     );
 
-    if let Some(target) = emakefile.targets.get(&target_info.target_name) {
+    if let Some(target) = emakefile.targets.get(&target_info.unwrap().target_name) {
         visitor(parent_target, target_absolute_path, target);
 
         if let Some(deps) = &target.deps {

@@ -24,7 +24,7 @@ fn call_glob(cwd: &str, pattern: &String) -> Option<String> {
     Some(result)
 }
 
-fn call_credential_password(cwd: &str, emakefile_current_path: &str, credential_name: &String) -> Option<String> {
+fn call_get_secret(cwd: &str, emakefile_current_path: &str, credential_name: &String) -> Option<String> {
     let result_secrets_config = emake::loader::get_target_on_path(
         cwd, 
         credential_name, 
@@ -35,12 +35,12 @@ fn call_credential_password(cwd: &str, emakefile_current_path: &str, credential_
     match result_secrets_config {
         Ok(credential_config) => {
             match credential_config {
-                Target::CredentialEntry(raw_credential) => {
+                Target::SecretEntry(raw_credential) => {
                     let credential_type = String::from(raw_credential.get("type").unwrap().as_str().unwrap());
                     let maybe_credential_plugin = CREDENTIALS_STORE.get(&credential_type);
                     match maybe_credential_plugin {
                         Some(credential_plugin) => {
-                            return credential_plugin.extract(cwd, &raw_credential).password;
+                            return Some(credential_plugin.extract(cwd, &raw_credential));
                         },
                         None => {
                             log::error!("Type {} doesn't exist for credential {}", credential_type, credential_name);
@@ -59,40 +59,6 @@ fn call_credential_password(cwd: &str, emakefile_current_path: &str, credential_
     }
 }
 
-fn call_credential_username(cwd: &str, emakefile_current_path: &str, credential_name: &str) -> Option<String> {
-    let result_secrets_config = emake::loader::get_target_on_path(
-        cwd, 
-        credential_name, 
-        emakefile_current_path,
-        Some(TargetType::Secrets),
-    );
-
-    match result_secrets_config {
-        Ok(credential_config) => {
-            match credential_config {
-                Target::CredentialEntry(raw_credential) => {
-                    let credential_type = String::from(raw_credential.get("type").unwrap().as_str().unwrap());
-                    let maybe_credential_plugin = CREDENTIALS_STORE.get(&credential_type);
-                    match maybe_credential_plugin {
-                        Some(credential_plugin) => {
-                            return Some(credential_plugin.extract(cwd, &raw_credential).username);
-                        },
-                        None => {
-                            log::error!("Type {} doesn't exist for credential {}", credential_type, credential_name);
-                            std::process::exit(1);
-                        }
-                    }
-                }
-                Target::TargetEntry(_) => None,
-                Target::VariableEntry(_) => None,
-            }
-        },
-        Err(error) => {
-            log::error!("{}", error);
-            std::process::exit(1);
-        }
-    }
-}
 
 fn extract_function_args(element: &str, function: &str) -> Vec<String> {
     let mut args = String::from(element);
@@ -112,16 +78,10 @@ fn call_function(cwd: &str, emakefile_current_path: &str, element: &str) -> Opti
         return call_glob(cwd, &args[0]);
     }
 
-    let credential_password_re: Regex = Regex::new(r####"["|']{0,1}\s*credential_password(.[^)])\s*["|']{0,1}"####).unwrap();
-    if credential_password_re.is_match(&element) {
-        let args = extract_function_args(&element, "credential_password");
-        return call_credential_password(cwd, emakefile_current_path, &args[0]);
-    }
-
-    let credential_username_re: Regex = Regex::new(r####"["|']{0,1}\s*credential_username(.[^)])\s*["|']{0,1}"####).unwrap();
-    if credential_username_re.is_match(&element) {
-        let args = extract_function_args(&element, "credential_username");
-        return call_credential_username(cwd, emakefile_current_path, &args[0]);
+    let get_secret_re: Regex = Regex::new(r####"["|']{0,1}\s*get_secret(.[^)])\s*["|']{0,1}"####).unwrap();
+    if get_secret_re.is_match(&element) {
+        let args = extract_function_args(&element, "get_secret");
+        return call_get_secret(cwd, emakefile_current_path, &args[0]);
     }
 
     return None;
@@ -141,7 +101,7 @@ fn get_user_variable(user_variable: &String, cwd: &str, emakefile_current_path: 
                 return Ok(variable);
             }
             Target::TargetEntry(_) => {},
-            Target::CredentialEntry(_) => {},
+            Target::SecretEntry(_) => {},
         }
     }
     

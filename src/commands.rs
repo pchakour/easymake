@@ -5,6 +5,7 @@ pub mod build;
 pub mod clean;
 pub mod graph;
 pub mod doc;
+pub mod keyring;
 
 pub async fn run_command(matches: &ArgMatches, cwd: &Path) {
     if let Some(matches) = matches.subcommand_matches("build") {
@@ -18,5 +19,15 @@ pub async fn run_command(matches: &ArgMatches, cwd: &Path) {
         graph::run(target, cwd);
     } else if let Some(_matches) = matches.subcommand_matches("doc") {
         doc::generate();
+    } else if let Some(matches) = matches.subcommand_matches("keyring") {
+        if let Some(submatches) = matches.subcommand_matches("store") {
+            let service = submatches.get_one::<String>("service").expect("required");
+            let name = submatches.get_one::<String>("name").expect("required");
+            keyring::store(service, name);
+        } else if let Some(submatches) = matches.subcommand_matches("clear") {
+            let service = submatches.get_one::<String>("service").expect("required");
+            let name = submatches.get_one::<String>("name").expect("required");
+            keyring::clear(service, name);
+        }
     }
 }

@@ -1,18 +1,16 @@
 use std::{collections::HashMap};
 
 mod plain;
+mod keyring;
 
-pub struct PlainSecrets {
-    pub username: String,
-    pub password: Option<String>,
-}
+pub type PlainSecret = String;
 
 pub trait Secrets: Send + Sync {
     fn extract<'a>(
         &'a self,
         cwd: &'a str,
         unextracted_secrets: &'a HashMap<String, serde_yml::Value>,
-    ) -> PlainSecrets;
+    ) -> PlainSecret;
     fn clone_box(&self) -> Box<dyn Secrets + Send + Sync>;
 }
 
@@ -42,4 +40,5 @@ pub fn instanciate() -> SecretsStore {
         secrets: HashMap::new(),
     }
     .add(&String::from(plain::ID), Box::new(plain::Plain))
+    .add(&String::from(keyring::ID), Box::new(keyring::Keyring))
 }

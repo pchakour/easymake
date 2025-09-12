@@ -1,6 +1,6 @@
-use serde_yml;
-use crate::emake::{self, CredentialEntry, VariableEntry};
 use crate::console::log;
+use crate::emake::{self, SecretEntry, VariableEntry};
+use serde_yml;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug)]
@@ -20,7 +20,7 @@ pub struct PathInfo {
 pub enum Target {
     TargetEntry(emake::Target),
     VariableEntry(VariableEntry),
-    CredentialEntry(CredentialEntry),
+    SecretEntry(SecretEntry),
 }
 
 fn read_file_content(path: &str) -> String {
@@ -29,20 +29,23 @@ fn read_file_content(path: &str) -> String {
     return content;
 }
 
-fn target_type_str_to_enum(target_type: &str) -> TargetType {
+fn target_type_str_to_enum(target_type: &str) -> Result<TargetType, String> {
     if target_type == "targets" {
-        return TargetType::Targets;
+        return Ok(TargetType::Targets);
     } else if target_type == "secrets" {
-        return TargetType::Secrets;
+        return Ok(TargetType::Secrets);
     } else if target_type == "variables" {
-        return TargetType::Variables;
-    } else {
-        log::error!("Unknown target type {}", target_type);
-        std::process::exit(1);
+        return Ok(TargetType::Variables);
     }
+
+    Err(format!("Unknown target type {}", target_type))
 }
 
-pub fn extract_info_from_path(path: &str, cwd: &str, emakefile_current_path: &str) -> PathInfo {
+pub fn extract_info_from_path(
+    path: &str,
+    cwd: &str,
+    emakefile_current_path: &str,
+) -> Result<PathInfo, String> {
     let mut target_split: Vec<&str> = path.split('/').collect();
     target_split.retain(|s| !s.is_empty());
     let from_root = path.starts_with("//");
@@ -54,8 +57,13 @@ pub fn extract_info_from_path(path: &str, cwd: &str, emakefile_current_path: &st
         let mut target_name = real_target.to_string();
 
         if real_target_split.len() == 2 {
-            target_type = target_type_str_to_enum(real_target_split[0]);
-            target_name = String::from(real_target_split[1]);
+            let target_type_result = target_type_str_to_enum(real_target_split[0]);
+            if target_type_result.is_ok() {
+                target_type = target_type_result?;
+                target_name = String::from(real_target_split[1]);
+            } else {
+                return Err(target_type_result.err().unwrap());
+            }
         }
 
         let mut emakefile_path = Path::new(cwd).join("Emakefile");
@@ -68,29 +76,32 @@ pub fn extract_info_from_path(path: &str, cwd: &str, emakefile_current_path: &st
         }
         emakefile_path = emakefile_path.join("Emakefile");
 
-        return PathInfo {
+        return Ok(PathInfo {
             emakefile_path,
             target_type,
-            target_name
-        }
+            target_name,
+        });
     }
 
-    log::error!("Malformed target path {}", path);
-    std::process::exit(1);
+    Err(format!("Malformed target path {}", path))
 }
 
 pub fn get_target_on_path(
     cwd: &str,
     secrets_path: &str,
     emakefile_current_path: &str,
-    maybe_force_type: Option<TargetType>
+    maybe_force_type: Option<TargetType>,
 ) -> Result<Target, String> {
     // Check if the target exists in the current Emakefile
-    let mut secrets_path_info = extract_info_from_path(secrets_path, cwd, emakefile_current_path);
+    let mut secrets_path_info_result = extract_info_from_path(secrets_path, cwd, emakefile_current_path);
+    let mut secrets_path_info = secrets_path_info_result?;
 
     if let Ok(emakefile_exists) = std::fs::exists(&secrets_path_info.emakefile_path) {
         if !emakefile_exists {
-            return Err(format!("Emakefile {} doesn't exist", secrets_path_info.emakefile_path.to_str().unwrap()));
+            return Err(format!(
+                "Emakefile {} doesn't exist",
+                secrets_path_info.emakefile_path.to_str().unwrap()
+            ));
         }
     }
 
@@ -102,32 +113,71 @@ pub fn get_target_on_path(
 
     match secrets_path_info.target_type {
         TargetType::Targets => {
-            if emakefile.targets.contains_key(&secrets_path_info.target_name) {
-                return Ok(Target::TargetEntry(emakefile.targets.get(&secrets_path_info.target_name).unwrap().to_owned()));
+            if emakefile
+                .targets
+                .contains_key(&secrets_path_info.target_name)
+            {
+                return Ok(Target::TargetEntry(
+                    emakefile
+                        .targets
+                        .get(&secrets_path_info.target_name)
+                        .unwrap()
+                        .to_owned(),
+                ));
             } else {
-                return Err(format!("No target named {} found in Emakefile {}", secrets_path_info.target_name, secrets_path_info.emakefile_path.to_str().unwrap()));
+                return Err(format!(
+                    "No target named {} found in Emakefile {}",
+                    secrets_path_info.target_name,
+                    secrets_path_info.emakefile_path.to_str().unwrap()
+                ));
             }
-        },
+        }
         TargetType::Secrets => {
             if let Some(secrets) = emakefile.secrets {
                 if secrets.contains_key(&secrets_path_info.target_name) {
-                    return Ok(Target::CredentialEntry(secrets.get(&secrets_path_info.target_name).unwrap().to_owned()));
+                    return Ok(Target::SecretEntry(
+                        secrets
+                            .get(&secrets_path_info.target_name)
+                            .unwrap()
+                            .to_owned(),
+                    ));
                 } else {
-                    return Err(format!("No secrets named {} found in Emakefile {}", secrets_path_info.target_name, secrets_path_info.emakefile_path.to_str().unwrap()));
+                    return Err(format!(
+                        "No secrets named {} found in Emakefile {}",
+                        secrets_path_info.target_name,
+                        secrets_path_info.emakefile_path.to_str().unwrap()
+                    ));
                 }
             } else {
-                return Err(format!("No secrets defined in Emakefile {}. Expected a credential named {}", secrets_path_info.emakefile_path.to_str().unwrap(), secrets_path_info.target_name));
+                return Err(format!(
+                    "No secrets defined in Emakefile {}. Expected a credential named {}",
+                    secrets_path_info.emakefile_path.to_str().unwrap(),
+                    secrets_path_info.target_name
+                ));
             }
-        },
+        }
         TargetType::Variables => {
             if let Some(variables) = emakefile.variables {
                 if variables.contains_key(&secrets_path_info.target_name) {
-                    return Ok(Target::VariableEntry(variables.get(&secrets_path_info.target_name).unwrap().to_owned()));
+                    return Ok(Target::VariableEntry(
+                        variables
+                            .get(&secrets_path_info.target_name)
+                            .unwrap()
+                            .to_owned(),
+                    ));
                 } else {
-                    return Err(format!("No variable named {} found in Emakefile {}", secrets_path_info.target_name, secrets_path_info.emakefile_path.to_str().unwrap()));
+                    return Err(format!(
+                        "No variable named {} found in Emakefile {}",
+                        secrets_path_info.target_name,
+                        secrets_path_info.emakefile_path.to_str().unwrap()
+                    ));
                 }
             } else {
-                return Err(format!("No variables defined in Emakefile {}. Expected a variable named {}", secrets_path_info.emakefile_path.to_str().unwrap(), secrets_path_info.target_name));
+                return Err(format!(
+                    "No variables defined in Emakefile {}. Expected a variable named {}",
+                    secrets_path_info.emakefile_path.to_str().unwrap(),
+                    secrets_path_info.target_name
+                ));
             }
         }
     }
