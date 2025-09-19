@@ -1,0 +1,39 @@
+secrets:
+  gitlab_username:
+    type: keyring
+    service: gitlab
+    name: username
+  gitlab_token:
+    type: keyring
+    service: gitlab
+    name: token
+  artifactory_username:
+    type: keyring
+    service: artifactory
+    name: username
+  artifactory_password:
+    type: keyring
+    service: artifactory
+    name: password
+
+targets:
+  download:
+    steps:
+      - description: Testing downwload file
+        extract:
+          from:
+            file: https://hawk.dip-tcs.com/artifactory/hawk-builds/build_tests_plugins/v5.2.0/hawkAuth-8.6.2.zip
+            credentials:
+              username: secrets:artifactory_username
+              password: secrets:artifactory_password
+          to: "{{ EMAKE_OUT_DIR }}"
+
+  clone:
+    steps:
+      - description: Git clone
+        git_clone:
+          url: https://gitlab.thalesdigital.io/hawk/platform_deployement.git
+          commit: feature/1652
+          destination: "{{ EMAKE_OUT_DIR }}/platform"
+          username: secrets:gitlab_username
+          password: secrets:gitlab_token

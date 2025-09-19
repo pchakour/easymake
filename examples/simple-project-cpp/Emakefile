@@ -1,0 +1,27 @@
+targets:
+  hello:
+    deps: 
+      - build
+    steps:
+      - description: Say hello
+        shell:
+          cmd: echo "aaa"
+  build:
+    steps:
+      - description: Compile objects
+        shell:
+          in_files: 
+            - "{{ glob(\"src/*\") }}"
+          out_files: 
+            - math.o
+            - main.o
+          cmd: g++ -c {{ in_files }}
+      - description: Compile executable
+        shell:
+          in_files:
+            - "{{ glob(\"*.o\") }}"
+          out_files: 
+            - simple.exe
+          cmd: g++ -o {{ out_files }} {{ in_files }}
+
+      

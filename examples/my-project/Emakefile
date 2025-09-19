@@ -1,0 +1,21 @@
+variables:
+  name: Linus
+  linux_readme_url: https://raw.githubusercontent.com/torvalds/linux/refs/heads/master/README
+  linux_credits_url: https://raw.githubusercontent.com/torvalds/linux/refs/heads/master/CREDITS
+
+targets:
+  my_first_target:
+    deps:
+      - //archive/targets:prepare_archive # or //archive/prepare_archive by default path call targets
+    parallel: true
+    steps:
+      - description: Say hello
+        shell:
+          cmd: |
+            echo "Hello {{ variables:name }} !"
+      - description: Display link
+        shell:
+          in_files:
+            - "{{ EMAKE_OUT_DIR }}/my_archive.tar.gz"
+          cmd: |
+            echo "This is the path to the Linux Readme {{ in_files }}"

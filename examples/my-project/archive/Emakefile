@@ -1,0 +1,9 @@
+targets:
+  prepare_archive:
+    steps:
+      - description: Prepare archive containing Readme and Credits file
+        archive:
+          from:
+            - "{{ //variables:linux_readme_url }}"
+            - "{{ //variables:linux_credits_url }}"
+          to: "{{ EMAKE_OUT_DIR }}/my_archive.tar.gz"
