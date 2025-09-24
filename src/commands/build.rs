@@ -1,14 +1,20 @@
 use std::{
-    path::{Path, PathBuf}, sync::{atomic::{AtomicBool, Ordering}, Mutex}, thread::{self, JoinHandle}, time::Duration
+    path::{Path, PathBuf},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Mutex,
+    },
+    thread::{self, JoinHandle},
+    time::Duration,
 };
 
-use crossterm::{cursor::SavePosition, execute};
 use crate::{
     cache,
-    console::{log, logger::{Logger}},
+    console::log,
     graph::{self, generator::get_absolute_target_path},
 };
 use crossbeam_channel::{bounded, Receiver};
+use crossterm::{cursor::SavePosition, execute};
 
 static LOGGER_RUNNING: AtomicBool = AtomicBool::new(true);
 
@@ -24,7 +30,7 @@ fn ctrl_channel() -> Result<Receiver<()>, ctrlc::Error> {
     Ok(receiver)
 }
 
-pub async fn run(target: &String, _silent: &bool, cwd: &Path, _find_root: bool) {
+pub async fn run(target: &String, cwd: &Path, _find_root: bool) {
     let ctrl_c_events = ctrl_channel().unwrap();
 
     let cwd_string = cwd.to_string_lossy().to_string();
@@ -50,30 +56,32 @@ async fn main_task(target: &String, cwd: &Path) {
         &cwd.to_string_lossy().to_string(),
     );
 
-    let mut stdout = std::io::stdout();
-    execute!(stdout, SavePosition).unwrap();
+    // let mut stdout = std::io::stdout();
+    // execute!(stdout, SavePosition).unwrap();
 
-    LOGGER_RUNNING.store(true, Ordering::SeqCst);
-    let logger_thread: JoinHandle<()> = thread::spawn(|| {
-        while LOGGER_RUNNING.load(Ordering::SeqCst) {
-            Logger::write();
-            thread::sleep(Duration::from_millis(150));
-        }
-    });
+    // Logger::init();
 
-    *LOGGER_HANDLE.lock().unwrap() = Some(logger_thread);
+    // LOGGER_RUNNING.store(true, Ordering::SeqCst);
+    // let logger_thread: JoinHandle<()> = thread::spawn(|| {
+    //     while LOGGER_RUNNING.load(Ordering::SeqCst) {
+    //         Logger::write();
+    //         thread::sleep(Duration::from_millis(150));
+    //     }
+    // });
+
+    // *LOGGER_HANDLE.lock().unwrap() = Some(logger_thread);
 
     graph::runner::run_target(target_path, cwd.to_string_lossy().to_string()).await;
 }
 
 pub async fn exit(cwd: &str, code: i32) {
-    LOGGER_RUNNING.store(false, Ordering::SeqCst);
-    
-    if let Some(handle) = LOGGER_HANDLE.lock().unwrap().take() {
-        handle.join().unwrap();
-    }
+    // LOGGER_RUNNING.store(false, Ordering::SeqCst);
 
-    Logger::close();
+    // if let Some(handle) = LOGGER_HANDLE.lock().unwrap().take() {
+    //     handle.join().unwrap();
+    // }
+
+    // Logger::close();
 
     // if code == 0 { // TODO
     log::info!("Build done");

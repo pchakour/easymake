@@ -2,10 +2,7 @@ use crate::actions::{
     compute_action_footprint, get_registered_action_footprint, register_action_footprint,
 };
 use crate::commands::build;
-use crate::console::log;
-use crate::console::logger::{
-    ActionProgressType, LogAction, LogStep, LogTarget, Logger, ProgressStatus,
-};
+use crate::console::log::{self, StepStatus};
 use crate::emake::loader::{extract_info_from_path, Target, TargetType};
 use crate::emake::{Credentials, Step};
 use crate::graph::generator::{get_absolute_target_path, to_emakefile_path};
@@ -39,8 +36,8 @@ pub fn is_url(s: &str) -> bool {
 }
 
 async fn download_file(
-    target_id: &str,
-    step_id: &str,
+    _target_id: &str,
+    _step_id: &str,
     url: &str,
     output_path: &str,
     cwd: &str,
@@ -153,62 +150,62 @@ async fn download_file(
         return Err(format!("Failed to download: HTTP {}", response.status()).into());
     }
 
-    let total_size = response
-        .content_length()
-        .ok_or("Failed to get content length")?;
+    // let total_size = response
+    //     .content_length()
+    //     .ok_or("Failed to get content length")?;
 
-    let description = format!("Downloading file {}", url);
-    let action_id = String::from("DOWNLOADING_FILE_") + url;
+    // let description = format!("Downloading file {}", url);
+    // let action_id = String::from("DOWNLOADING_FILE_") + url;
 
-    Logger::set_action(
-        target_id.to_string(),
-        step_id.to_string(),
-        LogAction {
-            id: action_id.clone(),
-            description: description.clone(),
-            status: ProgressStatus::Progress,
-            progress: ActionProgressType::Bar,
-            percent: Some(0),
-        },
-    );
+    // Logger::set_action(
+    //     target_id.to_string(),
+    //     step_id.to_string(),
+    //     LogAction {
+    //         id: action_id.clone(),
+    //         description: description.clone(),
+    //         status: ProgressStatus::Progress,
+    //         progress: ActionProgressType::Bar,
+    //         percent: Some(0),
+    //     },
+    // );
 
     let mut dest = BufWriter::new(File::create(output_path)?);
-    let mut downloaded: u64 = 0;
+    // let mut downloaded: u64 = 0;
     let mut stream = response.bytes_stream();
 
     while let Some(chunk_result) = stream.next().await {
         let chunk = chunk_result?;
         dest.write_all(&chunk)?;
-        downloaded += chunk.len() as u64;
+        // downloaded += chunk.len() as u64;
 
-        Logger::set_action(
-            target_id.to_string(),
-            step_id.to_string(),
-            LogAction {
-                id: action_id.clone(),
-                description: description.clone(),
-                status: ProgressStatus::Progress,
-                progress: ActionProgressType::Bar,
-                percent: Some(if total_size > 0 {
-                    ((downloaded * 100) / total_size) as usize
-                } else {
-                    0
-                }),
-            },
-        );
+        // Logger::set_action(
+        //     target_id.to_string(),
+        //     step_id.to_string(),
+        //     LogAction {
+        //         id: action_id.clone(),
+        //         description: description.clone(),
+        //         status: ProgressStatus::Progress,
+        //         progress: ActionProgressType::Bar,
+        //         percent: Some(if total_size > 0 {
+        //             ((downloaded * 100) / total_size) as usize
+        //         } else {
+        //             0
+        //         }),
+        //     },
+        // );
     }
 
-    Logger::set_action(
-        target_id.to_string(),
-        step_id.to_string(),
-        LogAction {
-            id: action_id.clone(),
-            description: format!("File {} downloaded", url),
-            status: ProgressStatus::Done,
-            progress: ActionProgressType::None,
-            percent: None,
-        },
-    );
+    // Logger::set_action(
+    //     target_id.to_string(),
+    //     step_id.to_string(),
+    //     LogAction {
+    //         id: action_id.clone(),
+    //         description: format!("File {} downloaded", url),
+    //         status: ProgressStatus::Done,
+    //         progress: ActionProgressType::None,
+    //         percent: None,
+    //     },
+    // );
 
     Ok(())
 }
@@ -327,30 +324,15 @@ async fn get_real_in_files<'a>(
 
     // Check for errors
     for (index, result) in download_results.into_iter().enumerate() {
+        let mut maybe_error = None;
         if let Err(err) = result {
-            Logger::set_action(
-                target_id.to_string(),
-                step_id.to_string(),
-                LogAction {
-                    id: String::from("DOWNLOADING_FILE_") + &downloaded_files[index],
-                    description: format!("Download task panicked: {:?}", err),
-                    status: ProgressStatus::Failed,
-                    progress: ActionProgressType::Bar,
-                    percent: Some(0),
-                },
-            );
+            maybe_error = Some(err.to_string());
         } else if let Err(err) = result.unwrap() {
-            Logger::set_action(
-                target_id.to_string(),
-                step_id.to_string(),
-                LogAction {
-                    id: String::from("DOWNLOADING_FILE_") + &downloaded_files[index],
-                    description: format!("Download task panicked: {:?}", err),
-                    status: ProgressStatus::Failed,
-                    progress: ActionProgressType::Bar,
-                    percent: Some(0),
-                },
-            );
+            maybe_error = Some(err.to_string());
+        }
+
+        if let Some(error) = maybe_error{
+            log::error!("Error when downloading file {}: {}", downloaded_files[index], error);
         }
     }
 
@@ -436,15 +418,17 @@ async fn run_step<'a>(
         step.description.clone()
     ));
     let step_description = step.description.clone();
-    Logger::set_step(
-        target_id.to_string(),
-        LogStep {
-            id: step_id.to_string(),
-            description: step_description.clone(),
-            actions: Vec::new(),
-            status: ProgressStatus::Progress,
-        },
-    );
+    log::step_info!(step_id, StepStatus::Running, step_description);
+
+    // Logger::set_step(
+    //     target_id.to_string(),
+    //     LogStep {
+    //         id: step_id.to_string(),
+    //         description: step_description.clone(),
+    //         actions: Vec::new(),
+    //         status: ProgressStatus::Progress,
+    //     },
+    // );
 
     let working_dir = cache::get_working_dir_path(cwd);
     let out_dir = cache::get_out_dir_path(cwd);
@@ -581,26 +565,29 @@ async fn run_step<'a>(
                         .await
                 }
             }
+
+            log::step_info!(step_id, StepStatus::Finished, step_description);
         }
-        Logger::set_step(
-            target_id.to_string(),
-            LogStep {
-                id: step_id.to_string(),
-                description: step_description.clone(),
-                actions: Vec::new(),
-                status: ProgressStatus::Done,
-            },
-        );
+        // Logger::set_step(
+        //     target_id.to_string(),
+        //     LogStep {
+        //         id: step_id.to_string(),
+        //         description: step_description.clone(),
+        //         actions: Vec::new(),
+        //         status: ProgressStatus::Done,
+        //     },
+        // );
     } else {
-        Logger::set_step(
-            target_id.to_string(),
-            LogStep {
-                id: step_id.to_string(),
-                description: step_description.clone(),
-                actions: Vec::new(),
-                status: ProgressStatus::Skipped,
-            },
-        );
+        log::step_info!(step_id, StepStatus::Skipped, step_description);
+        // Logger::set_step(
+        //     target_id.to_string(),
+        //     LogStep {
+        //         id: step_id.to_string(),
+        //         description: step_description.clone(),
+        //         actions: Vec::new(),
+        //         status: ProgressStatus::Skipped,
+        //     },
+        // );
     }
 
     has_error
@@ -651,12 +638,12 @@ pub fn run_target<'a>(
             futures::future::join_all(dependencies_tasks).await;
         }
 
-        Logger::set_target(LogTarget {
-            id: target_absolute_path.clone(),
-            description: None,
-            steps: Vec::new(),
-            status: ProgressStatus::Progress,
-        });
+        // Logger::set_target(LogTarget {
+        //     id: target_absolute_path.clone(),
+        //     description: None,
+        //     steps: Vec::new(),
+        //     status: ProgressStatus::Progress,
+        // });
 
         if let Some(steps) = &target.steps {
             let mut steps_tasks: Vec<JoinHandle<bool>> = Vec::new();
@@ -734,8 +721,9 @@ pub fn run_target<'a>(
 
                     if has_error {
                         log::error!(
-                            "An error occured when running the step {}, the status code is not 0",
-                            step_id_clone
+                            "An error occured when running the step [{}] {}, the status code is not 0",
+                            step_id_clone,
+                            step.description,
                         );
                         build::exit(&cwd, 1).await;
                     }
@@ -752,11 +740,11 @@ pub fn run_target<'a>(
             }
         }
 
-        Logger::set_target(LogTarget {
-            id: target_absolute_path.clone(),
-            description: None,
-            steps: Vec::new(),
-            status: ProgressStatus::Done,
-        });
+        // Logger::set_target(LogTarget {
+        //     id: target_absolute_path.clone(),
+        //     description: None,
+        //     steps: Vec::new(),
+        //     status: ProgressStatus::Done,
+        // });
     })
 }

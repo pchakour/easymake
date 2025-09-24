@@ -11,7 +11,7 @@ use walkdir::WalkDir;
 use zip::{write::FileOptions, ZipWriter};
 
 use crate::{
-    console::logger::{ActionProgressType, LogAction, Logger, ProgressStatus},
+    console::log,
     emake::{InFile, PluginAction},
 };
 use flate2::{write::GzEncoder, Compression};
@@ -89,20 +89,8 @@ fn archive(
         .and_then(|s| s.to_str())
         .unwrap_or("")
         .to_lowercase();
-    let action_id = format!("ARCHIVE{}", archive_path);
 
-    Logger::set_action(
-        target_id.to_string(),
-        step_id.to_string(),
-        LogAction {
-            id: action_id.clone(),
-            status: ProgressStatus::Progress,
-            description: String::from("Starting files compression"),
-            progress: ActionProgressType::Spinner,
-            percent: None,
-        },
-    );
-
+    log::debug!("[{}] {}", step_id, "Starting files compression");
     // Build globset once (works with empty exclude_paths)
     let globset = build_exclude_globset(exclude_paths)?;
 
@@ -114,18 +102,7 @@ fn archive(
         for from in from_paths {
             let from_path = Path::new(from);
             if !from_path.exists() {
-                // skip or log missing
-                Logger::set_action(
-                    target_id.to_string(),
-                    step_id.to_string(),
-                    LogAction {
-                        id: action_id.clone(),
-                        status: ProgressStatus::Failed,
-                        description: format!("archive: path doesn't exist {}", from),
-                        progress: ActionProgressType::Spinner,
-                        percent: None,
-                    },
-                );
+                log::error!("Archive: path doesn't exist {}", from);
                 continue;
             }
 
@@ -141,18 +118,7 @@ fn archive(
                     .ok_or("Invalid filename")?
                     .replace('\\', "/");
 
-                Logger::set_action(
-                    target_id.to_string(),
-                    step_id.to_string(),
-                    LogAction {
-                        id: action_id.clone(),
-                        status: ProgressStatus::Progress,
-                        description: format!("Compressing file: {}", name),
-                        progress: ActionProgressType::Spinner,
-                        percent: None,
-                    },
-                );
-
+                log::debug!("[{}] Compressing file: {}", step_id, name);
                 zip.start_file(&name, options)?;
                 let mut f = std::fs::File::open(from_path)?;
                 std::io::copy(&mut f, &mut zip)?;
@@ -173,19 +139,13 @@ fn archive(
 
                     current += 1;
                     // optional progress percent
-                    let percent = if total > 0 { Some(current * 100 / total) } else { None };
+                    let percent = if total > 0 {
+                        Some(current * 100 / total)
+                    } else {
+                        None
+                    };
 
-                    Logger::set_action(
-                        target_id.to_string(),
-                        step_id.to_string(),
-                        LogAction {
-                            id: action_id.clone(),
-                            status: ProgressStatus::Progress,
-                            description: format!("Compressing: {}", name),
-                            progress: ActionProgressType::Spinner,
-                            percent,
-                        },
-                    );
+                    log::debug!("[{}] Percent: {}% / Compressing: {}", step_id, name, percent.unwrap_or(0));
 
                     if entry.file_type().is_file() {
                         zip.start_file(&name, options)?;
@@ -221,7 +181,6 @@ fn archive(
                 continue;
             }
 
-            // directory
             let entries: Vec<_> = walk_with_excludes(from_path, exclude_paths)?;
             let total = entries.len();
             let mut current = 0;
@@ -238,18 +197,7 @@ fn archive(
 
                 current += 1;
                 let percent = if total > 0 { Some(current * 100 / total) } else { None };
-
-                Logger::set_action(
-                    target_id.to_string(),
-                    step_id.to_string(),
-                    LogAction {
-                        id: action_id.clone(),
-                        status: ProgressStatus::Progress,
-                        description: format!("Compressing: {}", name),
-                        progress: ActionProgressType::Bar,
-                        percent,
-                    },
-                );
+                log::debug!("[{}] Percent: {}% / Compressing: {}", step_id, name, percent.unwrap_or(0));
 
                 if entry.file_type().is_dir() {
                     tar.append_dir(relative_path, entry_path)?;
@@ -301,17 +249,7 @@ fn archive(
                 current += 1;
                 let percent = if total > 0 { Some(current * 100 / total) } else { None };
 
-                Logger::set_action(
-                    target_id.to_string(),
-                    step_id.to_string(),
-                    LogAction {
-                        id: action_id.clone(),
-                        status: ProgressStatus::Progress,
-                        description: format!("Compressing: {}", name),
-                        progress: ActionProgressType::Bar,
-                        percent,
-                    },
-                );
+                log::debug!("[{}] Percent: {}% / Compressing: {}", step_id, name, percent.unwrap_or(0));
 
                 if entry.file_type().is_dir() {
                     tar.append_dir(relative_path, entry_path)?;
@@ -362,19 +300,13 @@ fn archive(
                     .replace('\\', "/");
 
                 current += 1;
-                let percent = if total > 0 { Some(current * 100 / total) } else { None };
+                let percent = if total > 0 {
+                    Some(current * 100 / total)
+                } else {
+                    None
+                };
 
-                Logger::set_action(
-                    target_id.to_string(),
-                    step_id.to_string(),
-                    LogAction {
-                        id: action_id.clone(),
-                        status: ProgressStatus::Progress,
-                        description: format!("Compressing: {}", name),
-                        progress: ActionProgressType::Bar,
-                        percent,
-                    },
-                );
+                log::debug!("[{}] Percent: {}% / Compressing: {}", step_id, name, percent.unwrap_or(0));
 
                 if entry.file_type().is_dir() {
                     tar.append_dir(relative_path, entry_path)?;
@@ -390,17 +322,7 @@ fn archive(
         return Err(format!("Unsupported archive format: {}", archive_path).into());
     }
 
-    Logger::set_action(
-        target_id.to_string(),
-        step_id.to_string(),
-        LogAction {
-            id: action_id,
-            status: ProgressStatus::Done,
-            description: String::from("Archive completed"),
-            progress: ActionProgressType::None,
-            percent: Some(100),
-        },
-    );
+    log::debug!("[{}] Archive completed", step_id);
 
     Ok(())
 }

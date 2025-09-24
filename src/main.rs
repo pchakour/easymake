@@ -49,6 +49,12 @@ async fn main() {
         .version("0.0.1")
         .about("The tool to build everything")
         .arg(arg!(--cwd <PATH>).required(false))
+        .arg(
+            arg!(--log_level <LOG_LEVEL> "Log level")
+                .required(false)
+                .value_parser(["console", "info", "debug", "trace"])
+                .default_value("console"),
+        )
         .subcommand(Command::new("clean").about("Clean cache"))
         .subcommand(
             Command::new("graph")
@@ -58,8 +64,7 @@ async fn main() {
         .subcommand(
             Command::new("build")
                 .about("Build a target")
-                .arg(arg!([target] "Target to build").required(true))
-                .arg(arg!(--notsilent "Dispay all outputs").required(false)),
+                .arg(arg!([target] "Target to build").required(true)),
         )
         .subcommand(Command::new("doc").about("Generate documentation"))
         .subcommand(

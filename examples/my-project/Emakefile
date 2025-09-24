@@ -11,8 +11,7 @@ targets:
     steps:
       - description: Say hello
         shell:
-          cmd: |
-            echo "Hello {{ variables:name }} !"
+          cmd: echo "Hello {{ variables:name }} !"
       - description: Display link
         shell:
           in_files:

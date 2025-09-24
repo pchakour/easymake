@@ -12,9 +12,6 @@ use std::{
 use zip::ZipArchive;
 
 use crate::{
-    console::{
-        logger::{ActionProgressType, LogAction, Logger, ProgressStatus},
-    },
     emake::{InFile, PluginAction},
 };
 use flate2::read::GzDecoder;
@@ -101,8 +98,8 @@ fn extract_zip_multithreaded(file: &std::fs::File, output_dir: &str) -> io::Resu
 }
 
 fn extract(
-    target_id: &str,
-    step_id: &str,
+    _target_id: &str,
+    _step_id: &str,
     archive_path: &str,
     output_dir: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -110,19 +107,19 @@ fn extract(
     let extension = path.extension().and_then(|s| s.to_str()).unwrap_or("");
     let file = std::fs::File::open(path)?;
     let file_buffer = BufReader::new(&file);
-    let action_id = String::from("EXTRACT") + archive_path;
+    // let action_id = String::from("EXTRACT") + archive_path;
 
-    Logger::set_action(
-        target_id.to_string(),
-        step_id.to_string(),
-        LogAction {
-            id: action_id.clone(),
-            status: ProgressStatus::Progress,
-            description: String::from("Starting files extraction"),
-            progress: ActionProgressType::Spinner,
-            percent: None,
-        },
-    );
+    // Logger::set_action(
+    //     target_id.to_string(),
+    //     step_id.to_string(),
+    //     LogAction {
+    //         id: action_id.clone(),
+    //         status: ProgressStatus::Progress,
+    //         description: String::from("Starting files extraction"),
+    //         progress: ActionProgressType::Spinner,
+    //         percent: None,
+    //     },
+    // );
 
     if extension == "zip" {
         let _ = extract_zip_multithreaded(&file, output_dir);
@@ -134,34 +131,34 @@ fn extract(
 
         for entry in archive.entries()? {
             let mut entry = entry?;
-            Logger::set_action(
-                target_id.to_string(),
-                step_id.to_string(),
-                LogAction {
-                    id: action_id.clone(),
-                    status: ProgressStatus::Progress,
-                    description: format!(
-                        "Extracting file {}",
-                        entry.header().path().unwrap().to_string_lossy().to_string()
-                    ),
-                    progress: ActionProgressType::Spinner,
-                    percent: None,
-                },
-            );
+            // Logger::set_action(
+            //     target_id.to_string(),
+            //     step_id.to_string(),
+            //     LogAction {
+            //         id: action_id.clone(),
+            //         status: ProgressStatus::Progress,
+            //         description: format!(
+            //             "Extracting file {}",
+            //             entry.header().path().unwrap().to_string_lossy().to_string()
+            //         ),
+            //         progress: ActionProgressType::Spinner,
+            //         percent: None,
+            //     },
+            // );
             entry.unpack_in(output_dir)?;
         }
 
-        Logger::set_action(
-            target_id.to_string(),
-            step_id.to_string(),
-            LogAction {
-                id: action_id.clone(),
-                status: ProgressStatus::Done,
-                description: format!("Extraction of file {} is done", archive_path),
-                progress: ActionProgressType::Spinner,
-                percent: None,
-            },
-        );
+        // Logger::set_action(
+        //     target_id.to_string(),
+        //     step_id.to_string(),
+        //     LogAction {
+        //         id: action_id.clone(),
+        //         status: ProgressStatus::Done,
+        //         description: format!("Extraction of file {} is done", archive_path),
+        //         progress: ActionProgressType::Spinner,
+        //         percent: None,
+        //     },
+        // );
 
         Ok(())
     } else if archive_path.ends_with(".tar.xz") {

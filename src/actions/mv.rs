@@ -7,10 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, future::Future, pin::Pin};
 
 use crate::{
-    console::{
-        log,
-        logger::{ActionProgressType, LogAction, Logger, ProgressStatus},
-    },
+    console::log,
     emake::{InFile, PluginAction},
 };
 
@@ -37,8 +34,11 @@ targets:
 pub struct MoveAction {
     #[action_prop(description = "A list of source files to move", required = true)]
     from: Vec<InFile>,
-    #[action_prop(description = "The destination to move source files. \
-    Can be a folder or a filename if the from property contains only one file. The folder will be automatically created if doesn't exist", required = true)]
+    #[action_prop(
+        description = "The destination to move source files. \
+    Can be a folder or a filename if the from property contains only one file. The folder will be automatically created if doesn't exist",
+        required = true
+    )]
     to: String,
 }
 
@@ -80,8 +80,8 @@ impl Action for Move {
     fn run<'a>(
         &'a self,
         _cwd: &'a str,
-        target_id: &'a str,
-        step_id: &'a str,
+        _target_id: &'a str,
+        _step_id: &'a str,
         _emakefile_cwd: &'a str,
         _silent: bool,
         _action: &'a PluginAction,
@@ -100,39 +100,39 @@ impl Action for Move {
                 copy_inside: true,
                 ..Default::default()
             };
-            let action_id = String::from(ID) + &src.join(";") + &destination;
+            // let action_id = String::from(ID) + &src.join(";") + &destination;
 
-            Logger::set_action(
-                target_id.to_string(),
-                step_id.to_string(),
-                LogAction {
-                    id: action_id.clone(),
-                    status: ProgressStatus::Progress,
-                    description: String::from("Moving files"),
-                    progress: ActionProgressType::Bar,
-                    percent: Some(0),
-                },
-            );
+            // Logger::set_action(
+            //     target_id.to_string(),
+            //     step_id.to_string(),
+            //     LogAction {
+            //         id: action_id.clone(),
+            //         status: ProgressStatus::Progress,
+            //         description: String::from("Moving files"),
+            //         progress: ActionProgressType::Bar,
+            //         percent: Some(0),
+            //     },
+            // );
 
             // We use copy because move is not working correctly
             let copy_result =
-                copy_items_with_progress(&src, &destination, &options, |process_info| {
-                    Logger::set_action(
-                        target_id.to_string(),
-                        step_id.to_string(),
-                        LogAction {
-                            id: action_id.clone(),
-                            status: ProgressStatus::Progress,
-                            description: format!("Copying file {}", process_info.dir_name),
-                            progress: ActionProgressType::Bar,
-                            percent: Some(if process_info.total_bytes > 0 {
-                                ((process_info.copied_bytes * 100) / process_info.total_bytes)
-                                    as usize
-                            } else {
-                                0
-                            }),
-                        },
-                    );
+                copy_items_with_progress(&src, &destination, &options, |_process_info| {
+                    // Logger::set_action(
+                    //     target_id.to_string(),
+                    //     step_id.to_string(),
+                    //     LogAction {
+                    //         id: action_id.clone(),
+                    //         status: ProgressStatus::Progress,
+                    //         description: format!("Copying file {}", process_info.dir_name),
+                    //         progress: ActionProgressType::Bar,
+                    //         percent: Some(if process_info.total_bytes > 0 {
+                    //             ((process_info.copied_bytes * 100) / process_info.total_bytes)
+                    //                 as usize
+                    //         } else {
+                    //             0
+                    //         }),
+                    //     },
+                    // );
 
                     TransitProcessResult::ContinueOrAbort
                 });
@@ -142,34 +142,34 @@ impl Action for Move {
                 has_error = true;
             }
 
-            Logger::set_action(
-                target_id.to_string(),
-                step_id.to_string(),
-                LogAction {
-                    id: action_id.clone(),
-                    status: ProgressStatus::Progress,
-                    description: String::from("Removing source files"),
-                    progress: ActionProgressType::Spinner,
-                    percent: None,
-                },
-            );
+            // Logger::set_action(
+            //     target_id.to_string(),
+            //     step_id.to_string(),
+            //     LogAction {
+            //         id: action_id.clone(),
+            //         status: ProgressStatus::Progress,
+            //         description: String::from("Removing source files"),
+            //         progress: ActionProgressType::Spinner,
+            //         percent: None,
+            //     },
+            // );
             let remove_result = fs_extra::remove_items(&src);
             if remove_result.is_err() {
                 log::error!("{}", remove_result.err().unwrap());
                 has_error = true;
             }
 
-            Logger::set_action(
-                target_id.to_string(),
-                step_id.to_string(),
-                LogAction {
-                    id: action_id.clone(),
-                    status: ProgressStatus::Done,
-                    description: String::from("Move files is done"),
-                    progress: ActionProgressType::Spinner,
-                    percent: None,
-                },
-            );
+            // Logger::set_action(
+            //     target_id.to_string(),
+            //     step_id.to_string(),
+            //     LogAction {
+            //         id: action_id.clone(),
+            //         status: ProgressStatus::Done,
+            //         description: String::from("Move files is done"),
+            //         progress: ActionProgressType::Spinner,
+            //         percent: None,
+            //     },
+            // );
 
             has_error
         })

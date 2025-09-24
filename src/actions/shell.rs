@@ -8,9 +8,8 @@ use std::{
 };
 
 use crate::{
-    console::{
-        logger::{ActionProgressType, LogAction, Logger, ProgressStatus}
-    }, emake::{self, InFile, PluginAction}
+    console::log,
+    emake::{self, InFile, PluginAction},
 };
 use config_macros::ActionDoc;
 
@@ -59,9 +58,8 @@ pub struct ShellAction {
 
 pub struct Shell;
 
-
 impl Action for Shell {
-   fn insert_in_files<'a>(
+    fn insert_in_files<'a>(
         &'a self,
         action: &'a PluginAction,
         in_files: &'a mut Vec<InFile>,
@@ -102,7 +100,7 @@ impl Action for Shell {
     fn run<'a>(
         &'a self,
         cwd: &'a str,
-        target_id: &'a str,
+        _target_id: &'a str,
         step_id: &'a str,
         emakefile_cwd: &'a str,
         _silent: bool,
@@ -141,27 +139,6 @@ impl Action for Shell {
                     Some(&replacements),
                 );
 
-                let action_id = format!(
-                    "{}{}{}{}{}",
-                    target_id,
-                    step_id,
-                    ID,
-                    in_files.join(";"),
-                    out_files.join(";")
-                );
-
-                Logger::set_action(
-                    target_id.to_string(),
-                    step_id.to_string(),
-                    LogAction {
-                        id: action_id.clone(),
-                        status: ProgressStatus::Progress,
-                        description: format!("Running command: {}", command),
-                        progress: ActionProgressType::Spinner,
-                        percent: None,
-                    },
-                );
-
                 let (shell, arg) = if cfg!(windows) {
                     ("cmd", "/C")
                 } else {
@@ -182,95 +159,40 @@ impl Action for Shell {
 
                 let stdout_reader = BufReader::new(stdout);
                 let stderr_reader = BufReader::new(stderr);
-
-                let tid_stdout = target_id.to_string();
-                let sid_stdout = step_id.to_string();
-                let aid_stdout = action_id.clone();
                 let cmd_stdout = command.clone();
 
-                let stdout_thread = std::thread::spawn(move || {
+                let output_thread = std::thread::spawn(move || {
                     let mut outputs = Vec::new();
                     for line in stdout_reader.lines() {
                         if let Ok(text) = line {
-                            let output = format!("{}\n[stdout] {}", cmd_stdout, text);
-                            Logger::set_action(
-                                tid_stdout.clone(),
-                                sid_stdout.clone(),
-                                LogAction {
-                                    id: aid_stdout.clone(),
-                                    status: ProgressStatus::Progress,
-                                    description: output.clone(),
-                                    progress: ActionProgressType::Spinner,
-                                    percent: None,
-                                },
-                            );
-                            outputs.push(output.clone());
+                            let output = format!("[stdout] {}", text);
+                            outputs.push(output);
+                        }
+                    }
+
+                    for line in stderr_reader.lines() {
+                        if let Ok(text) = line {
+                            let output = format!("[stderr] {}", text);
+                            outputs.push(output);
                         }
                     }
                     outputs
                 });
 
-                let tid_stderr = target_id.to_string();
-                let sid_stderr = step_id.to_string();
-                let aid_stderr = action_id.clone();
-                let cmd_stderr = command.clone();
-
-                let stderr_thread = std::thread::spawn(move || {
-                    let mut errors = Vec::new();
-                    for line in stderr_reader.lines() {
-                        if let Ok(text) = line {
-                            errors.push(text.clone());
-                            Logger::set_action(
-                                tid_stderr.clone(),
-                                sid_stderr.clone(),
-                                LogAction {
-                                    id: aid_stderr.clone(),
-                                    status: ProgressStatus::Progress,
-                                    description: format!("{}\n[stderr] {}", cmd_stderr, text),
-                                    progress: ActionProgressType::Spinner,
-                                    percent: None,
-                                },
-                            );
-                        }
-                    }
-                    errors
-                });
-
                 let status = child.wait().expect("Failed to wait on child");
-                let output = stdout_thread.join().unwrap();
-                let errors = stderr_thread.join().unwrap();
+                let output = output_thread.join().unwrap();
+
+                log::action_info!(step_id, self::ID, "[command] {}", cmd_stdout);
+                log::action_info!(step_id, self::ID, "{}", output.join("\n"));
 
                 if !status.success() {
-                    Logger::set_action(
-                        target_id.to_string(),
-                        step_id.to_string(),
-                        LogAction {
-                            id: action_id.clone(),
-                            status: ProgressStatus::Failed,
-                            description: format!(
-                                "Command `{}` failed with exit code {}.\n{}",
-                                command,
-                                status.code().unwrap_or(-1),
-                                errors.join("\n")
-                            ),
-                            progress: ActionProgressType::Spinner,
-                            percent: None,
-                        },
+                    log::error!(
+                        "Command `{}` failed with exit code {}.",
+                        command,
+                        status.code().unwrap_or(-1),
                     );
                     return true;
                 }
-
-                Logger::set_action(
-                    target_id.to_string(),
-                    step_id.to_string(),
-                    LogAction {
-                        id: action_id,
-                        status: ProgressStatus::Done,
-                        description: format!("Command `{}` completed successfully\n{}", command, output.join("\n")),
-                        progress: ActionProgressType::None,
-                        percent: None,
-                    },
-                );
 
                 false
             } else {

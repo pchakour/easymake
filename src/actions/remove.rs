@@ -3,9 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, future::Future, pin::Pin};
 
 use crate::{
-    console::{
-        logger::{ActionProgressType, LogAction, Logger, ProgressStatus},
-    },
+    console::log,
     emake::{InFile, PluginAction},
 };
 
@@ -36,7 +34,10 @@ targets:
 "
 )]
 pub struct RemoveAction {
-    #[action_prop(description = "List of path to remove. Could be folders or files", required = true)]
+    #[action_prop(
+        description = "List of path to remove. Could be folders or files",
+        required = true
+    )]
     pub paths: Vec<String>,
 }
 
@@ -71,8 +72,8 @@ impl Action for Remove {
     fn run<'a>(
         &'a self,
         _cwd: &'a str,
-        target_id: &'a str,
-        step_id: &'a str,
+        _target_id: &'a str,
+        _step_id: &'a str,
         _emakefile_cwd: &'a str,
         _silent: bool,
         _action: &'a PluginAction,
@@ -84,7 +85,7 @@ impl Action for Remove {
         Box::pin(async move {
             let mut has_error = false;
             let paths = in_files;
-            let action_id = String::from(target_id) + step_id + ID + paths.join(",").as_str();
+            // let action_id = String::from(target_id) + step_id + ID + paths.join(",").as_str();
 
             // Check if path exists otherwise log a warning
             // for path in paths {
@@ -94,46 +95,37 @@ impl Action for Remove {
             //     }
             // }
 
-            Logger::set_action(
-                target_id.to_string(),
-                step_id.to_string(),
-                LogAction {
-                    id: action_id.clone(),
-                    status: ProgressStatus::Progress,
-                    description: String::from("Deleting files"),
-                    progress: ActionProgressType::Spinner,
-                    percent: Some(0),
-                },
-            );
+            // Logger::set_action(
+            //     target_id.to_string(),
+            //     step_id.to_string(),
+            //     LogAction {
+            //         id: action_id.clone(),
+            //         status: ProgressStatus::Progress,
+            //         description: String::from("Deleting files"),
+            //         progress: ActionProgressType::Spinner,
+            //         percent: Some(0),
+            //     },
+            // );
 
             let remove_result = fs_extra::remove_items(&paths);
 
             if remove_result.is_err() {
-                Logger::set_action(
-                    target_id.to_string(),
-                    step_id.to_string(),
-                    LogAction {
-                        id: action_id.clone(),
-                        status: ProgressStatus::Failed,
-                        description: format!("Error when deleting files {}", remove_result.err().unwrap()),
-                        progress: ActionProgressType::Spinner,
-                        percent: Some(0),
-                    },
-                );
+                log::error!("Error when deleting files {}", remove_result.err().unwrap());
                 has_error = true;
-            } else {
-                Logger::set_action(
-                    target_id.to_string(),
-                    step_id.to_string(),
-                    LogAction {
-                        id: action_id.clone(),
-                        status: ProgressStatus::Done,
-                        description: String::from("Deleting files"),
-                        progress: ActionProgressType::Spinner,
-                        percent: Some(0),
-                    },
-                );
             }
+            // else {
+            //     Logger::set_action(
+            //         target_id.to_string(),
+            //         step_id.to_string(),
+            //         LogAction {
+            //             id: action_id.clone(),
+            //             status: ProgressStatus::Done,
+            //             description: String::from("Deleting files"),
+            //             progress: ActionProgressType::Spinner,
+            //             percent: Some(0),
+            //         },
+            //     );
+            // }
 
             has_error
         })
