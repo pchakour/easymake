@@ -85,7 +85,7 @@ macro_rules! action_info {
             // The macro will expand into the contents of this block.
             log::info!("[\x1b[90m{}\x1b[0m] \x1b[1;34mAction {}\x1b[0m {}", $step_id, $action_id, format!($($arg)*));
         } else {
-            log::info!("\x1b[1;34mAction\x1b[0m {} \x1b[1;34mfrom step\x1b[0m {} \n   \x1b[90m{}\x1b", $action_id, $step_id, format!($($arg)*));
+            log::info!("\x1b[1;34mAction {}\x1b[0m [\x1b[90m{}\x1b[0m] {}", $action_id, $step_id, format!($($arg)*));
         }
     }};
 }
@@ -130,20 +130,17 @@ macro_rules! warning {
 }
 
 #[allow(unused)]
-macro_rules! error {
-    // `()` indicates that the macro takes no argument.
-    ($($arg:tt)*) => {
-        // The macro will expand into the contents of this block.
-        log::timestamp!("[\x1b[31merror\x1b[0m] {}", format!($($arg)*));
-    };
-}
-
-#[allow(unused)]
 macro_rules! panic {
     // `()` indicates that the macro takes no argument.
-    ($($arg:tt)*) => {
+    ($($arg:tt)*, $exit:expr) => {
         // The macro will expand into the contents of this block.
-        panic!("\x1b[31m{}\x1b[0m", format!($($arg)*));
+        if log::LogLevel::as_usize(log::get_log_level()) > 0 {
+            // The macro will expand into the contents of this block.
+            log::timestamp!("[\x1b[31mfatal\x1b[0m] \x1b[31m{}\x1b[0m", format!($($arg)*));
+        } else {
+            log::text!("\x1b[31m{}\x1b[0m", format!($($arg)*));
+        }
+        $exit;
     };
 }
 
@@ -184,8 +181,6 @@ use std::{
 
 #[allow(unused)]
 pub(crate) use debug;
-#[allow(unused)]
-pub(crate) use error;
 #[allow(unused)]
 pub(crate) use info;
 #[allow(unused)]

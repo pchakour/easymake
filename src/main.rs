@@ -11,7 +11,7 @@ mod utils;
 
 use clap::{arg, Command, Parser};
 use indicatif::MultiProgress;
-use std::{env, fs, path::Path, sync::Arc};
+use std::{env, fs, path::{Path, PathBuf}, sync::{Arc, OnceLock, RwLock}};
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -35,6 +35,17 @@ pub static CREDENTIALS_STORE: Lazy<SecretsStore> = Lazy::new(|| secrets::instanc
 pub static CACHE_IN_FILE_TO_UPDATE: Lazy<DashSet<(String, String)>> = Lazy::new(DashSet::new);
 pub static CACHE_OUT_FILE_TO_UPDATE: Lazy<DashSet<(String, String)>> = Lazy::new(DashSet::new);
 pub static MULTI_PROGRESS: Lazy<Arc<MultiProgress>> = Lazy::new(|| Arc::new(MultiProgress::new()));
+pub static CWD: OnceLock<RwLock<PathBuf>> = OnceLock::new();
+
+fn init_cwd(cwd: PathBuf) {
+    CWD.set(RwLock::new(cwd)).ok().unwrap();
+}
+
+/// Get current CWD (thread-safe)
+pub fn get_cwd() -> PathBuf {
+    CWD.get().unwrap().read().unwrap().clone()
+}
+
 
 pub async fn get_mutex_for_id(id: &str) -> Arc<Mutex<()>> {
     GLOBAL_MUTEXES
@@ -91,6 +102,8 @@ async fn main() {
         cwd = Path::new(&fs::canonicalize(&custom_cwd).unwrap().to_str().unwrap()).to_path_buf();
     }
 
-    cache::create_cache_dir(cwd.to_str().unwrap()).await;
+    init_cwd(cwd.clone());
+
+    cache::create_cache_dir().await;
     commands::run_command(&matches, &cwd).await;
 }

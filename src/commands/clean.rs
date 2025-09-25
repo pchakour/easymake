@@ -23,8 +23,8 @@ pub async fn run(cwd: &Path) {
     path.push(CACHE_DIR);
     let _ = std::fs::remove_dir_all(path);
 
-    let working_dir = cache::get_working_dir_path(&String::from(cwd.to_str().unwrap()));
-    let out_dir = cache::get_out_dir_path(&String::from(cwd.to_str().unwrap()));
+    let working_dir = cache::get_working_dir_path();
+    let out_dir = cache::get_out_dir_path();
     let default_replacements = HashMap::from([
         (String::from("EMAKE_WORKING_DIR"), working_dir.to_owned()),
         (String::from("EMAKE_OUT_DIR"), out_dir.to_owned()),

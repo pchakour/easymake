@@ -77,7 +77,7 @@ fn walk_with_excludes<'a>(
 }
 
 fn archive(
-    target_id: &str,
+    _target_id: &str,
     step_id: &str,
     from_paths: &Vec<String>,
     archive_path: &str,
@@ -102,8 +102,7 @@ fn archive(
         for from in from_paths {
             let from_path = Path::new(from);
             if !from_path.exists() {
-                log::error!("Archive: path doesn't exist {}", from);
-                continue;
+                log::panic!("Archive: path doesn't exist {}", from);
             }
 
             if from_path.is_file() {
@@ -118,7 +117,7 @@ fn archive(
                     .ok_or("Invalid filename")?
                     .replace('\\', "/");
 
-                log::debug!("[{}] Compressing file: {}", step_id, name);
+                log::action_info!(step_id, ID, "Compressing file: {}", name);
                 zip.start_file(&name, options)?;
                 let mut f = std::fs::File::open(from_path)?;
                 std::io::copy(&mut f, &mut zip)?;
@@ -145,7 +144,7 @@ fn archive(
                         None
                     };
 
-                    log::debug!("[{}] Percent: {}% / Compressing: {}", step_id, name, percent.unwrap_or(0));
+                    log::action_info!(step_id, ID, "Percent: {}% / Compressing: {}", percent.unwrap_or(0), name);
 
                     if entry.file_type().is_file() {
                         zip.start_file(&name, options)?;
@@ -197,7 +196,7 @@ fn archive(
 
                 current += 1;
                 let percent = if total > 0 { Some(current * 100 / total) } else { None };
-                log::debug!("[{}] Percent: {}% / Compressing: {}", step_id, name, percent.unwrap_or(0));
+                log::action_info!(step_id, ID, "Percent: {}% / Compressing: {}", percent.unwrap_or(0), name);
 
                 if entry.file_type().is_dir() {
                     tar.append_dir(relative_path, entry_path)?;
@@ -249,7 +248,7 @@ fn archive(
                 current += 1;
                 let percent = if total > 0 { Some(current * 100 / total) } else { None };
 
-                log::debug!("[{}] Percent: {}% / Compressing: {}", step_id, name, percent.unwrap_or(0));
+                log::action_info!(step_id, ID, "Percent: {}% / Compressing: {}", percent.unwrap_or(0), name);
 
                 if entry.file_type().is_dir() {
                     tar.append_dir(relative_path, entry_path)?;
@@ -306,7 +305,7 @@ fn archive(
                     None
                 };
 
-                log::debug!("[{}] Percent: {}% / Compressing: {}", step_id, name, percent.unwrap_or(0));
+                log::action_info!(step_id, ID, "[{}] Percent: {}% / Compressing: {}", step_id, percent.unwrap_or(0), name);
 
                 if entry.file_type().is_dir() {
                     tar.append_dir(relative_path, entry_path)?;
@@ -322,7 +321,7 @@ fn archive(
         return Err(format!("Unsupported archive format: {}", archive_path).into());
     }
 
-    log::debug!("[{}] Archive completed", step_id);
+    log::action_info!(step_id, ID, "Archive completed");
 
     Ok(())
 }

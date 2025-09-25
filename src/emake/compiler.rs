@@ -43,8 +43,7 @@ fn call_get_secret(cwd: &str, emakefile_current_path: &str, credential_name: &St
                             return Some(credential_plugin.extract(cwd, &raw_credential));
                         },
                         None => {
-                            log::error!("Type {} doesn't exist for credential {}", credential_type, credential_name);
-                            std::process::exit(1);
+                            log::panic!("Type {} doesn't exist for credential {}", credential_type, credential_name, crate::commands::buid::exit(1).await);
                         }
                     }
                 }
@@ -53,8 +52,7 @@ fn call_get_secret(cwd: &str, emakefile_current_path: &str, credential_name: &St
             }
         },
         Err(error) => {
-            log::error!("{}", error);
-            std::process::exit(1);
+            log::panic!("{}", error);
         }
     }
 }
@@ -140,8 +138,7 @@ pub fn compile(
                     }
 
                     if throw_error {
-                        log::error!("{}", error);
-                        std::process::exit(1);
+                        log::panic!("{}", error);
                     } else {
                         return var_caps[0].to_string();
                     }

@@ -29,10 +29,25 @@ impl Secrets for Plain {
         unextracted_secrets: &'a HashMap<String, serde_yml::Value>,
     ) -> PlainSecret {
         if !unextracted_secrets.contains_key(SECRET_KEY) {
-            log::error!("Plain secret must contains a key named {}", SECRET_KEY);
+            log::panic!("Plain secret must contains a key named {}", SECRET_KEY);
         }
 
-        String::from_utf8(STANDARD.decode(unextracted_secrets.get(SECRET_KEY).unwrap().as_str().unwrap()).unwrap()).unwrap()
+        let secret = unextracted_secrets.get(SECRET_KEY).unwrap().as_str().unwrap();
+        let decoded_secret_result = STANDARD.decode(secret);
+
+        match decoded_secret_result {
+            Ok(decoded_secret) => {
+                let plain_secret_result = String::from_utf8(decoded_secret);
+                if plain_secret_result.is_err() {
+                    log::panic!("Error when decoding your base64 secret {}", secret);
+                }
+
+                plain_secret_result.unwrap()
+            },
+            _ => {
+                log::panic!("Error when decoding your base64 secret {}", secret);
+            }
+        }
     }
     
     fn clone_box(&self) -> Box<dyn Secrets + Send + Sync> {

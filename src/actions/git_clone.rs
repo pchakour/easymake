@@ -83,8 +83,7 @@ fn compile_secret(
         match result_secret.unwrap() {
             emake::loader::Target::SecretEntry(secret_config) => {
                 if !secret_config.contains_key("type") {
-                    log::error!("The secret {} must contains a type", secret);
-                    process::exit(1);
+                    log::panic!("The secret {} must contains a type", secret);
                 }
                 let secret_type =
                     String::from(secret_config.get("type").unwrap().as_str().unwrap());
@@ -92,8 +91,7 @@ fn compile_secret(
                 if let Some(secret_plugin) = maybe_secret_plugin {
                     compiled_secret = secret_plugin.extract(cwd, &secret_config);
                 } else {
-                    log::error!("The credential type {} does not exist", secret_type);
-                    process::exit(1);
+                    log::panic!("The credential type {} does not exist", secret_type);
                 }
             }
             _ => {}
@@ -137,7 +135,7 @@ impl Action for GitClone {
     fn run<'a>(
         &'a self,
         cwd: &'a str,
-        target_id: &'a str,
+        _target_id: &'a str,
         step_id: &'a str,
         emakefile_cwd: &'a str,
         _silent: bool,
@@ -149,8 +147,6 @@ impl Action for GitClone {
     ) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>> {
         Box::pin(async move {
             let mut has_error = false;
-            let paths = in_files;
-            // let action_id = String::from(target_id) + step_id + ID + paths.join(",").as_str();
 
             let git_action = match action {
                 PluginAction::GitClone { git_clone } => git_clone,
@@ -162,42 +158,21 @@ impl Action for GitClone {
             let repository = &in_files[0];
             let destination = &out_files[0];
 
-            // Logger::set_action(
-            //     target_id.to_string(),
-            //     step_id.to_string(),
-            //     LogAction {
-            //         id: action_id.clone(),
-            //         status: ProgressStatus::Progress,
-            //         description: String::from("Cloning repository"),
-            //         progress: ActionProgressType::Bar,
-            //         percent: Some(0),
-            //     },
-            // );
-
+            log::action_info!(step_id, ID, "Percent 0% | Cloning repository {}", repository);
             let mut callbacks = RemoteCallbacks::new();
 
             // Progress callback
             callbacks.transfer_progress(|stats: Progress| {
                 let total = stats.total_objects();
                 if total > 0 {
-                    // let received = stats.received_objects();
-                    // let indexed = stats.indexed_objects();
+                    let received = stats.received_objects();
+                    let indexed = stats.indexed_objects();
 
-                    // let download_percent = received * 100 / total;
-                    // let index_percent = indexed * 100 / total;
-                    // let percent = (download_percent + index_percent) / 2;
+                    let download_percent = received * 100 / total;
+                    let index_percent = indexed * 100 / total;
+                    let percent = (download_percent + index_percent) / 2;
 
-                    // Logger::set_action(
-                    //     target_id.to_string(),
-                    //     step_id.to_string(),
-                    //     LogAction {
-                    //         id: action_id.clone(),
-                    //         status: ProgressStatus::Progress,
-                    //         description: format!("Cloning repository {}", repository),
-                    //         progress: ActionProgressType::Bar,
-                    //         percent: Some(percent),
-                    //     },
-                    // );
+                    log::action_info!(step_id, ID, "Percent {}% | Cloning repository {}", percent, repository);
                 }
                 true
             });
@@ -246,33 +221,9 @@ impl Action for GitClone {
             }
 
             match builder.clone(&repository, Path::new(&destination)) {
-                Ok(_) => {
-                    // Logger::set_action(
-                    //     target_id.to_string(),
-                    //     step_id.to_string(),
-                    //     LogAction {
-                    //         id: action_id.clone(),
-                    //         status: ProgressStatus::Done,
-                    //         description: format!("Repository {} cloned", repository),
-                    //         progress: ActionProgressType::None,
-                    //         percent: None,
-                    //     },
-                    // );
-                }
+                Ok(_) => {}
                 Err(e) => {
-                    log::error!("Error when cloning repository: {}", e);
-                    // Logger::set_action(
-                    //     target_id.to_string(),
-                    //     step_id.to_string(),
-                    //     LogAction {
-                    //         id: action_id.clone(),
-                    //         status: ProgressStatus::Progress,
-                    //         description: format!("Error when cloning repository: {}", e),
-                    //         progress: ActionProgressType::Spinner,
-                    //         percent: Some(0),
-                    //     },
-                    // );
-                    has_error = true;
+                    log::panic!("Error when cloning repository: {}", e);
                 }
             }
 

@@ -85,10 +85,10 @@ pub fn run_command(
     (status, stdout_output, stderr_output)
 }
 
-pub fn get_absolute_file_path(cwd: &str, file: &str) -> std::path::PathBuf {
+pub fn get_absolute_file_path(cwd: &std::path::PathBuf, file: &str) -> std::path::PathBuf {
     let mut path = std::path::PathBuf::from(&file);
     if !path.is_absolute() {
-        path = std::path::PathBuf::from(cwd);
+        path = cwd.clone();
         path.push(file);
     }
     path

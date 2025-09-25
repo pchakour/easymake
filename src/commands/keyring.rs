@@ -18,8 +18,7 @@ pub fn store(service: &str, name: &str) {
   let keyring_entry = Entry::new(&service, &name).unwrap();
 
   if let Ok(_) = keyring_entry.get_password() {
-      log::error!("A password already exists for service {service} with name {name}, you must clear before to continue");
-      exit(1);
+      log::panic!("A password already exists for service {service} with name {name}, you must clear before to continue");
   }
 
   // Getting secret from user

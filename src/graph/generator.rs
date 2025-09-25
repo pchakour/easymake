@@ -77,7 +77,7 @@ pub struct TargetProperties {
 }
 
 pub fn to_footprint_path(target_absolute_path: &str, cwd: &str) -> PathBuf {
-    let footprints_dir = cache::get_footprints_dir_path(cwd);
+    let footprints_dir = cache::get_footprints_dir_path();
     let footprint_path: String = target_absolute_path
         .replace("targets:", "_targets_/")
         .replace("//", "");

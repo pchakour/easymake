@@ -81,7 +81,7 @@ impl Action for Move {
         &'a self,
         _cwd: &'a str,
         _target_id: &'a str,
-        _step_id: &'a str,
+        step_id: &'a str,
         _emakefile_cwd: &'a str,
         _silent: bool,
         _action: &'a PluginAction,
@@ -100,76 +100,36 @@ impl Action for Move {
                 copy_inside: true,
                 ..Default::default()
             };
-            // let action_id = String::from(ID) + &src.join(";") + &destination;
-
-            // Logger::set_action(
-            //     target_id.to_string(),
-            //     step_id.to_string(),
-            //     LogAction {
-            //         id: action_id.clone(),
-            //         status: ProgressStatus::Progress,
-            //         description: String::from("Moving files"),
-            //         progress: ActionProgressType::Bar,
-            //         percent: Some(0),
-            //     },
-            // );
 
             // We use copy because move is not working correctly
             let copy_result =
-                copy_items_with_progress(&src, &destination, &options, |_process_info| {
-                    // Logger::set_action(
-                    //     target_id.to_string(),
-                    //     step_id.to_string(),
-                    //     LogAction {
-                    //         id: action_id.clone(),
-                    //         status: ProgressStatus::Progress,
-                    //         description: format!("Copying file {}", process_info.dir_name),
-                    //         progress: ActionProgressType::Bar,
-                    //         percent: Some(if process_info.total_bytes > 0 {
-                    //             ((process_info.copied_bytes * 100) / process_info.total_bytes)
-                    //                 as usize
-                    //         } else {
-                    //             0
-                    //         }),
-                    //     },
-                    // );
+                copy_items_with_progress(&src, &destination, &options, |process_info| {
+                    let mut percent = 0;
+                    
+                    if process_info.total_bytes > 0 {
+                        percent = ((process_info.copied_bytes * 100) / process_info.total_bytes) as usize
+                    }
+
+                    log::action_info!(
+                        step_id,
+                        ID,
+                        "Percent {}% | Copying file {}",
+                        percent,
+                        process_info.dir_name
+                    );
 
                     TransitProcessResult::ContinueOrAbort
                 });
 
             if copy_result.is_err() {
-                log::error!("{}", copy_result.err().unwrap());
-                has_error = true;
+                log::panic!("{}", copy_result.err().unwrap());
             }
 
-            // Logger::set_action(
-            //     target_id.to_string(),
-            //     step_id.to_string(),
-            //     LogAction {
-            //         id: action_id.clone(),
-            //         status: ProgressStatus::Progress,
-            //         description: String::from("Removing source files"),
-            //         progress: ActionProgressType::Spinner,
-            //         percent: None,
-            //     },
-            // );
+            log::action_info!(step_id, ID, "Removing source files");
             let remove_result = fs_extra::remove_items(&src);
             if remove_result.is_err() {
-                log::error!("{}", remove_result.err().unwrap());
-                has_error = true;
+                log::panic!("{}", remove_result.err().unwrap());
             }
-
-            // Logger::set_action(
-            //     target_id.to_string(),
-            //     step_id.to_string(),
-            //     LogAction {
-            //         id: action_id.clone(),
-            //         status: ProgressStatus::Done,
-            //         description: String::from("Move files is done"),
-            //         progress: ActionProgressType::Spinner,
-            //         percent: None,
-            //     },
-            // );
 
             has_error
         })

@@ -161,37 +161,36 @@ impl Action for Shell {
                 let stderr_reader = BufReader::new(stderr);
                 let cmd_stdout = command.clone();
 
-                let output_thread = std::thread::spawn(move || {
-                    let mut outputs = Vec::new();
+                log::action_info!(step_id, self::ID, "[command] {}", cmd_stdout);
+                let stdout_step_id_clone = String::from(step_id);
+                
+                let _ = std::thread::spawn(move || {
                     for line in stdout_reader.lines() {
                         if let Ok(text) = line {
                             let output = format!("[stdout] {}", text);
-                            outputs.push(output);
+                            log::action_info!(stdout_step_id_clone, ID, "{}", output);
                         }
                     }
+                });
 
+                let stderr_step_id_clone = String::from(step_id);
+                let _ = std::thread::spawn(move || {
                     for line in stderr_reader.lines() {
                         if let Ok(text) = line {
                             let output = format!("[stderr] {}", text);
-                            outputs.push(output);
+                            log::action_info!(stderr_step_id_clone, ID, "{}", output);
                         }
                     }
-                    outputs
                 });
 
                 let status = child.wait().expect("Failed to wait on child");
-                let output = output_thread.join().unwrap();
-
-                log::action_info!(step_id, self::ID, "[command] {}", cmd_stdout);
-                log::action_info!(step_id, self::ID, "{}", output.join("\n"));
 
                 if !status.success() {
-                    log::error!(
+                    log::panic!(
                         "Command `{}` failed with exit code {}.",
                         command,
                         status.code().unwrap_or(-1),
                     );
-                    return true;
                 }
 
                 false

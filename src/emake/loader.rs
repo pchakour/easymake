@@ -1,4 +1,4 @@
-use crate::emake::{self, SecretEntry, VariableEntry};
+use crate::{console::log, emake::{self, SecretEntry, VariableEntry}};
 use serde_yml;
 use std::path::{Path, PathBuf};
 
@@ -184,7 +184,13 @@ pub fn get_target_on_path(
 
 pub fn load_file(root: &str) -> emake::Emakefile {
     let build_file_content = read_file_content(root);
-    let mut emakefile: emake::Emakefile = serde_yml::from_str(&build_file_content).unwrap();
+    let emakefile_result = serde_yml::from_str(&build_file_content);
+
+    if emakefile_result.is_err() {
+        log::panic!("An error occured when loading Emakefile {}: \n\n{:?}", root, emakefile_result.as_ref().err());
+    }
+
+    let mut emakefile: emake::Emakefile = emakefile_result.unwrap();
     emakefile.path = Some(String::from(root));
     // println!("{:?}", emakefile);
     return emakefile;

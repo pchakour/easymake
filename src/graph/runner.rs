@@ -1,15 +1,14 @@
 use crate::actions::{
     compute_action_footprint, get_registered_action_footprint, register_action_footprint,
 };
-use crate::commands::build;
 use crate::console::log::{self, StepStatus};
 use crate::emake::loader::{extract_info_from_path, Target, TargetType};
 use crate::emake::{Credentials, Step};
 use crate::graph::generator::{get_absolute_target_path, to_emakefile_path};
 use crate::utils::get_absolute_file_path;
 use crate::{
-    cache, emake, get_mutex_for_id, graph, secrets, utils, ACTIONS_STORE, CACHE_IN_FILE_TO_UPDATE,
-    CACHE_OUT_FILE_TO_UPDATE, CREDENTIALS_STORE,
+    cache, emake, errors, get_mutex_for_id, graph, secrets, utils, ACTIONS_STORE,
+    CACHE_IN_FILE_TO_UPDATE, CACHE_OUT_FILE_TO_UPDATE, CREDENTIALS_STORE,
 };
 use dashmap::DashMap;
 use futures::future::join_all;
@@ -22,7 +21,6 @@ use std::io::BufWriter;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
-use std::process;
 use std::process::ExitStatus;
 use std::sync::Arc;
 use std::{collections::HashMap, future::Future};
@@ -37,7 +35,7 @@ pub fn is_url(s: &str) -> bool {
 
 async fn download_file(
     _target_id: &str,
-    _step_id: &str,
+    step_id: &str,
     url: &str,
     output_path: &str,
     cwd: &str,
@@ -54,8 +52,9 @@ async fn download_file(
             Some(TargetType::Secrets),
         );
 
-        let mut maybe_result_password_secret: Option<Result<emake::loader::Target, std::string::String>> =
-            None;
+        let mut maybe_result_password_secret: Option<
+            Result<emake::loader::Target, std::string::String>,
+        > = None;
         if let Some(credential_password) = &credentials.password {
             maybe_result_password_secret = Some(emake::loader::get_target_on_path(
                 cwd,
@@ -69,8 +68,7 @@ async fn download_file(
             Ok(username_secret) => match username_secret {
                 Target::SecretEntry(secret_config) => {
                     if !secret_config.contains_key("type") {
-                        log::error!("The secret {} must contains a type", credentials.username);
-                        process::exit(1);
+                        log::panic!("The secret {} must contains a type", credentials.username);
                     }
                     let secret_type =
                         String::from(secret_config.get("type").unwrap().as_str().unwrap());
@@ -78,21 +76,18 @@ async fn download_file(
                     if let Some(secret_plugin) = maybe_secret_plugin {
                         maybe_username_secret = Some(secret_plugin.extract(cwd, &secret_config));
                     } else {
-                        log::error!("The credential type {} does not exist", secret_type);
-                        process::exit(1);
+                        log::panic!("The credential type {} does not exist", secret_type);
                     }
                 }
                 _ => {
-                    log::error!(
+                    log::panic!(
                         "The specified path {} is not a credential",
                         credentials.username
                     );
-                    std::process::exit(1);
                 }
             },
             Err(error) => {
-                log::error!("{}", error);
-                std::process::exit(1);
+                log::panic!("{}", error);
             }
         }
 
@@ -101,35 +96,34 @@ async fn download_file(
                 Ok(password_secret) => match password_secret {
                     Target::SecretEntry(secret_config) => {
                         if !secret_config.contains_key("type") {
-                            log::error!("The secret {:?} must contains a type", credentials.password);
-                            process::exit(1);
+                            log::panic!(
+                                "The secret {:?} must contains a type",
+                                credentials.password
+                            );
                         }
                         let secret_type =
                             String::from(secret_config.get("type").unwrap().as_str().unwrap());
                         let maybe_secret_plugin = CREDENTIALS_STORE.get(&secret_type);
                         if let Some(secret_plugin) = maybe_secret_plugin {
-                            maybe_password_secret = Some(secret_plugin.extract(cwd, &secret_config));
+                            maybe_password_secret =
+                                Some(secret_plugin.extract(cwd, &secret_config));
                         } else {
-                            log::error!("The credential type {} does not exist", secret_type);
-                            process::exit(1);
+                            log::panic!("The credential type {} does not exist", secret_type);
                         }
                     }
                     _ => {
-                        log::error!(
+                        log::panic!(
                             "The specified path {:?} is not a credential",
                             credentials.password
                         );
-                        std::process::exit(1);
                     }
                 },
                 Err(error) => {
-                    log::error!("{}", error);
-                    std::process::exit(1);
+                    log::panic!("{}", error);
                 }
             }
         }
     }
-
 
     // Validate URL
     let parsed_url: Url = Url::parse(url)?;
@@ -150,24 +144,13 @@ async fn download_file(
         return Err(format!("Failed to download: HTTP {}", response.status()).into());
     }
 
-    // let total_size = response
-    //     .content_length()
-    //     .ok_or("Failed to get content length")?;
+    let total_size = response
+        .content_length()
+        .ok_or("Failed to get content length")?;
 
-    // let description = format!("Downloading file {}", url);
-    // let action_id = String::from("DOWNLOADING_FILE_") + url;
-
-    // Logger::set_action(
-    //     target_id.to_string(),
-    //     step_id.to_string(),
-    //     LogAction {
-    //         id: action_id.clone(),
-    //         description: description.clone(),
-    //         status: ProgressStatus::Progress,
-    //         progress: ActionProgressType::Bar,
-    //         percent: Some(0),
-    //     },
-    // );
+    let description = format!("Downloading file {}", url);
+    let action_id = "download file";
+    log::action_info!(step_id, action_id, "{}", description);
 
     let mut dest = BufWriter::new(File::create(output_path)?);
     // let mut downloaded: u64 = 0;
@@ -177,36 +160,15 @@ async fn download_file(
         let chunk = chunk_result?;
         dest.write_all(&chunk)?;
         // downloaded += chunk.len() as u64;
+        // let mut percent = 0;
+        // if total_size > 0 {
+        //     percent = ((downloaded * 100) / total_size) as usize
+        // }
 
-        // Logger::set_action(
-        //     target_id.to_string(),
-        //     step_id.to_string(),
-        //     LogAction {
-        //         id: action_id.clone(),
-        //         description: description.clone(),
-        //         status: ProgressStatus::Progress,
-        //         progress: ActionProgressType::Bar,
-        //         percent: Some(if total_size > 0 {
-        //             ((downloaded * 100) / total_size) as usize
-        //         } else {
-        //             0
-        //         }),
-        //     },
-        // );
+        // log::action_info!(step_id, action_id, "Percent {}% | {}", percent, description);
     }
 
-    // Logger::set_action(
-    //     target_id.to_string(),
-    //     step_id.to_string(),
-    //     LogAction {
-    //         id: action_id.clone(),
-    //         description: format!("File {} downloaded", url),
-    //         status: ProgressStatus::Done,
-    //         progress: ActionProgressType::None,
-    //         percent: None,
-    //     },
-    // );
-
+    log::action_info!(step_id, action_id, "File {} downloaded", url);
     Ok(())
 }
 
@@ -243,8 +205,8 @@ async fn get_real_in_files<'a>(
     plugin.insert_in_files(&step.plugin, &mut in_files).await;
 
     let mut real_in_files = Vec::new();
-    let working_dir = cache::get_working_dir_path(cwd);
-    let out_dir = cache::get_out_dir_path(cwd);
+    let working_dir = cache::get_working_dir_path();
+    let out_dir = cache::get_out_dir_path();
     let default_replacements = HashMap::from([
         (String::from("EMAKE_WORKING_DIR"), working_dir.to_owned()),
         (String::from("EMAKE_CWD_DIR"), cwd.to_owned()),
@@ -288,11 +250,11 @@ async fn get_real_in_files<'a>(
         for file in &files {
             if graph::common::is_downloadable_file(&file) {
                 let filename = get_filename_from_url(&file).unwrap();
-                let mut output = PathBuf::from(cache::get_working_dir_path(cwd));
+                let mut output = PathBuf::from(cache::get_working_dir_path());
                 output.push(&filename);
                 let output_string = output.to_str().unwrap().to_string();
                 downloadable_files_indices.insert(file.clone(), output_string.clone());
-                if cache::has_file_changed(cwd, &output_string, step_id, &false).await {
+                if cache::has_file_changed(&output_string, step_id, &false).await {
                     downloaded_files.push(file.clone());
                     let file_clone = file.clone(); // required if file is &String
                     let target_id_clone = String::from(target_id);
@@ -331,8 +293,13 @@ async fn get_real_in_files<'a>(
             maybe_error = Some(err.to_string());
         }
 
-        if let Some(error) = maybe_error{
-            log::error!("Error when downloading file {}: {}", downloaded_files[index], error);
+        if let Some(error) = maybe_error {
+            log::panic!(
+                "Error when downloading file {} from step {}: {}",
+                downloaded_files[index],
+                step_id,
+                error
+            );
         }
     }
 
@@ -366,8 +333,8 @@ async fn get_real_out_files<'a>(
 
     let mut out_files;
     let mut real_out_files = Vec::new();
-    let working_dir = cache::get_working_dir_path(cwd);
-    let out_dir = cache::get_out_dir_path(cwd);
+    let working_dir = cache::get_working_dir_path();
+    let out_dir = cache::get_out_dir_path();
     let default_replacements = HashMap::from([
         (String::from("EMAKE_WORKING_DIR"), working_dir.to_owned()),
         (String::from("EMAKE_CWD_DIR"), cwd.to_owned()),
@@ -420,18 +387,8 @@ async fn run_step<'a>(
     let step_description = step.description.clone();
     log::step_info!(step_id, StepStatus::Running, step_description);
 
-    // Logger::set_step(
-    //     target_id.to_string(),
-    //     LogStep {
-    //         id: step_id.to_string(),
-    //         description: step_description.clone(),
-    //         actions: Vec::new(),
-    //         status: ProgressStatus::Progress,
-    //     },
-    // );
-
-    let working_dir = cache::get_working_dir_path(cwd);
-    let out_dir = cache::get_out_dir_path(cwd);
+    let working_dir = cache::get_working_dir_path();
+    let out_dir = cache::get_out_dir_path();
     let default_replacements = HashMap::from([
         (String::from("EMAKE_WORKING_DIR"), working_dir.to_owned()),
         (String::from("EMAKE_CWD_DIR"), cwd.to_owned()),
@@ -439,7 +396,6 @@ async fn run_step<'a>(
     ]);
     let real_in_files =
         get_real_in_files(target_id, step_id, step, cwd, emakefile_current_path).await;
-    // log::info!("Run step {}", step.description);
     let plugin_out_files = get_real_out_files(step_id, step, cwd, emakefile_current_path).await;
     let mut real_out_files = plugin_out_files.clone();
     if force_out_files.is_some() {
@@ -449,7 +405,7 @@ async fn run_step<'a>(
     let mut need_to_run_action = real_in_files.len() == 0 && real_out_files.len() == 0;
 
     for file in &real_in_files {
-        let file_changed = cache::has_file_changed(cwd, file, step_id, &true).await;
+        let file_changed = cache::has_file_changed(file, step_id, &true).await;
         if file_changed {
             need_to_run_action = true;
             break;
@@ -458,7 +414,7 @@ async fn run_step<'a>(
 
     if !need_to_run_action {
         for file in &real_out_files {
-            let file_changed = cache::has_file_changed(cwd, file, step_id, &false).await;
+            let file_changed = cache::has_file_changed(file, step_id, &false).await;
             if file_changed {
                 need_to_run_action = true;
                 break;
@@ -483,7 +439,7 @@ async fn run_step<'a>(
 
         if let Some(checksum) = maybe_checksum {
             if let Some(current_action_checksum) =
-                cache::get_cache_action_checksum(step_id, cwd).await
+                cache::get_cache_action_checksum(step_id).await
             {
                 if checksum.trim().to_string() != current_action_checksum {
                     log::info!(
@@ -534,13 +490,13 @@ async fn run_step<'a>(
                 }
 
                 let file_absolute_path =
-                    String::from(get_absolute_file_path(cwd, &filename).to_str().unwrap());
+                    String::from(get_absolute_file_path(&PathBuf::from(cwd), &filename).to_str().unwrap());
                 CACHE_IN_FILE_TO_UPDATE.insert((file_absolute_path, String::from(step_id)));
             }
 
             for file in &real_out_files {
                 let file_absolute_path =
-                    String::from(get_absolute_file_path(cwd, file).to_str().unwrap());
+                    String::from(get_absolute_file_path(&PathBuf::from(cwd), file).to_str().unwrap());
                 CACHE_OUT_FILE_TO_UPDATE.insert((file_absolute_path, String::from(step_id)));
             }
 
@@ -561,33 +517,15 @@ async fn run_step<'a>(
                 }
 
                 if let Some(checksum) = maybe_checksum {
-                    cache::write_cache_action_checksum(step_id, &checksum.trim().to_string(), cwd)
+                    cache::write_cache_action_checksum(step_id, &checksum.trim().to_string())
                         .await
                 }
             }
 
             log::step_info!(step_id, StepStatus::Finished, step_description);
         }
-        // Logger::set_step(
-        //     target_id.to_string(),
-        //     LogStep {
-        //         id: step_id.to_string(),
-        //         description: step_description.clone(),
-        //         actions: Vec::new(),
-        //         status: ProgressStatus::Done,
-        //     },
-        // );
     } else {
         log::step_info!(step_id, StepStatus::Skipped, step_description);
-        // Logger::set_step(
-        //     target_id.to_string(),
-        //     LogStep {
-        //         id: step_id.to_string(),
-        //         description: step_description.clone(),
-        //         actions: Vec::new(),
-        //         status: ProgressStatus::Skipped,
-        //     },
-        // );
     }
 
     has_error
@@ -616,7 +554,19 @@ pub fn run_target<'a>(
             &emakefile_path.to_string_lossy().to_string(),
         );
 
-        let target = emakefile.targets.get(&target_info.unwrap().target_name).unwrap();
+        let target_absolute_path_clone = target_absolute_path.clone();
+        let maybe_target = emakefile.targets.get(&target_info.unwrap().target_name);
+
+        if maybe_target.is_none() {
+            log::panic!(
+                "{}",
+                errors::target_not_found_error::TargetNotFoundError {
+                    target: target_absolute_path_clone,
+                }
+            );
+        }
+        let target = maybe_target.unwrap();
+
         if let Some(deps) = &target.deps {
             let mut dependencies_tasks: Vec<JoinHandle<()>> = Vec::new();
 
@@ -637,13 +587,6 @@ pub fn run_target<'a>(
             // Await all dependency tasks
             futures::future::join_all(dependencies_tasks).await;
         }
-
-        // Logger::set_target(LogTarget {
-        //     id: target_absolute_path.clone(),
-        //     description: None,
-        //     steps: Vec::new(),
-        //     status: ProgressStatus::Progress,
-        // });
 
         if let Some(steps) = &target.steps {
             let mut steps_tasks: Vec<JoinHandle<bool>> = Vec::new();
@@ -720,12 +663,11 @@ pub fn run_target<'a>(
                     .await;
 
                     if has_error {
-                        log::error!(
+                        log::panic!(
                             "An error occured when running the step [{}] {}, the status code is not 0",
                             step_id_clone,
                             step.description,
                         );
-                        build::exit(&cwd, 1).await;
                     }
                 }
             }
@@ -734,17 +676,9 @@ pub fn run_target<'a>(
             for result in join_results {
                 let has_error = result.unwrap();
                 if has_error {
-                    log::error!("An error occured when running a step,  the status code is not 0");
-                    build::exit(&cwd, 1).await;
+                    log::panic!("An error occured when running a step, the status code is not 0");
                 }
             }
         }
-
-        // Logger::set_target(LogTarget {
-        //     id: target_absolute_path.clone(),
-        //     description: None,
-        //     steps: Vec::new(),
-        //     status: ProgressStatus::Done,
-        // });
     })
 }

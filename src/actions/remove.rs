@@ -83,49 +83,14 @@ impl Action for Remove {
         _maybe_replacements: Option<&'a HashMap<String, String>>,
     ) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>> {
         Box::pin(async move {
-            let mut has_error = false;
+            let has_error = false;
             let paths = in_files;
-            // let action_id = String::from(target_id) + step_id + ID + paths.join(",").as_str();
-
-            // Check if path exists otherwise log a warning
-            // for path in paths {
-            //     if !std::fs::exists(&path).unwrap() {
-            //         // TODO log a warning
-            //         continue;
-            //     }
-            // }
-
-            // Logger::set_action(
-            //     target_id.to_string(),
-            //     step_id.to_string(),
-            //     LogAction {
-            //         id: action_id.clone(),
-            //         status: ProgressStatus::Progress,
-            //         description: String::from("Deleting files"),
-            //         progress: ActionProgressType::Spinner,
-            //         percent: Some(0),
-            //     },
-            // );
 
             let remove_result = fs_extra::remove_items(&paths);
 
             if remove_result.is_err() {
-                log::error!("Error when deleting files {}", remove_result.err().unwrap());
-                has_error = true;
+                log::panic!("Error when deleting files {}", remove_result.err().unwrap());
             }
-            // else {
-            //     Logger::set_action(
-            //         target_id.to_string(),
-            //         step_id.to_string(),
-            //         LogAction {
-            //             id: action_id.clone(),
-            //             status: ProgressStatus::Done,
-            //             description: String::from("Deleting files"),
-            //             progress: ActionProgressType::Spinner,
-            //             percent: Some(0),
-            //         },
-            //     );
-            // }
 
             has_error
         })

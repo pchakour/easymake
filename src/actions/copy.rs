@@ -87,7 +87,7 @@ impl Action for Copy {
         &'a self,
         _cwd: &'a str,
         _target_id: &'a str,
-        _step_id: &'a str,
+        step_id: &'a str,
         _emakefile_cwd: &'a str,
         _silent: bool,
         _action: &'a PluginAction,
@@ -109,28 +109,12 @@ impl Action for Copy {
                 if to.len() > index {
                     destination = &to[index];
                 }
-                // let action_id = String::from(target_id) + step_id + ID + from + destination;
 
-                // let action_description = format!("Copying file {} to {}", from, destination);
-
-                // Logger::set_action(
-                //     target_id.to_string(),
-                //     step_id.to_string(),
-                //     LogAction {
-                //         id: action_id.clone(),
-                //         status: ProgressStatus::Progress,
-                //         description: action_description.clone(),
-                //         progress: ActionProgressType::Spinner,
-                //         percent: None,
-                //     },
-                // );
+                let action_description = format!("Copying file {} to {}", from, destination);
+                log::action_info!(step_id, ID, "{}", action_description);
 
                 let src_owned = from.clone();
                 let dest_owned = destination.clone();
-                // let action_id_clone = action_id.clone();
-                // let target_id_clone = target_id.to_string();
-                // let step_id_clone = step_id.to_string();
-                // let action_description_clone = action_description.clone();
 
                 handles.push(tokio::spawn(async move {
                     let mut dest_path = PathBuf::from(&dest_owned);
@@ -149,33 +133,8 @@ impl Action for Copy {
                     let copy_result = tokio::fs::copy(src_path, dest_path).await;
 
                     if copy_result.is_err() {
-                        log::error!("{}", error);
-                        // Logger::set_action(
-                        //     target_id_clone,
-                        //     step_id_clone,
-                        //     LogAction {
-                        //         id: action_id_clone.clone(),
-                        //         status: ProgressStatus::Failed,
-                        //         description: error,
-                        //         progress: ActionProgressType::Spinner,
-                        //         percent: None,
-                        //     },
-                        // );
+                        log::panic!("{}", error);
                     }
-                    // else {
-                    // Logger::set_action(
-                    //     target_id_clone,
-                    //     step_id_clone,
-                    //     LogAction {
-                    //         id: action_id_clone.clone(),
-                    //         status: ProgressStatus::Done,
-                    //         description: action_description_clone,
-                    //         progress: ActionProgressType::Spinner,
-                    //         percent: None,
-                    //     },
-                    // );
-                    // }
-
                     copy_result
                 }));
             }

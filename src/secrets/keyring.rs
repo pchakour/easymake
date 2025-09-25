@@ -32,10 +32,10 @@ impl Secrets for Keyring {
         unextracted_secrets: &'a HashMap<String, serde_yml::Value>,
     ) -> PlainSecret {
         if !unextracted_secrets.contains_key(NAME_KEY) {
-            log::error!("Keyring secret must contains a key named {}", NAME_KEY);
+            log::panic!("Keyring secret must contains a key named {}", NAME_KEY);
         }
         if !unextracted_secrets.contains_key(SERVICE_KEY) {
-            log::error!("Keyring secret must contains a key named {}", SERVICE_KEY);
+            log::panic!("Keyring secret must contains a key named {}", SERVICE_KEY);
         }
         let service = unextracted_secrets.get(SERVICE_KEY).unwrap().as_str().unwrap();
         let name = unextracted_secrets.get(NAME_KEY).unwrap().as_str().unwrap();
