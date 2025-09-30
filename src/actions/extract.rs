@@ -24,6 +24,7 @@ use super::Action;
 pub static ID: &str = "extract";
 
 #[derive(ActionDoc, Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[action_doc(
     id = "extract",
     short_desc = "Extract archive",
@@ -34,7 +35,7 @@ targets:
     extraction_example:
         steps:
             - description: Retrieve and extract archive from url
-              extract: 
+              extract:
                 from: 
                     - https://github.com/pchakour/easymake/archive/refs/heads/main.zip
                 to:
@@ -80,7 +81,7 @@ fn extract_zip_multithreaded(step_id: &str, file: &std::fs::File, output_dir: &s
             .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
         let filename = file_in_zip.name();
         let outpath = Path::new(output_dir).join(&filename);
-        log::action_info!(step_id, ID, "Extracting file {}", filename);
+        log::action_debug!(step_id, ID, "Extracting file {}", filename);
 
         if filename.ends_with('/') {
             fs::create_dir_all(&outpath)?;
@@ -110,6 +111,8 @@ fn extract(
     let file = std::fs::File::open(path)?;
     let file_buffer = BufReader::new(&file);
 
+    log::action_info!(step_id, ID, "Extracting archive {}", archive_path);
+
     if extension == "zip" {
         let _ = extract_zip_multithreaded(step_id, &file, output_dir);
         Ok(())
@@ -121,7 +124,7 @@ fn extract(
         for entry in archive.entries()? {
             let mut entry = entry?;
             let filename = entry.header().path().unwrap().to_string_lossy().to_string();
-            log::action_info!(step_id, ID, "Extracting file {}", filename);
+            log::action_debug!(step_id, ID, "Extracting file {}", filename);
             entry.unpack_in(output_dir)?;
         }
 
@@ -132,10 +135,11 @@ fn extract(
         for entry in archive.entries()? {
             let mut entry = entry?;
             let filename = entry.header().path().unwrap().to_string_lossy().to_string();
-            log::action_info!(step_id, ID, "Extracting file {}", filename);
+            log::action_debug!(step_id, ID, "Extracting file {}", filename);
             entry.unpack_in(output_dir)?;
         }
 
+        log::action_info!(step_id, ID, "Extracting archive {}", archive_path);
         Ok(())
     } else {
         Err(format!("Unsupported archive format: {}", archive_path).into())
@@ -190,7 +194,7 @@ impl Action for Extract {
         out_files: &'a Vec<String>,
         _working_dir: &'a String,
         _maybe_replacements: Option<&'a HashMap<String, String>>,
-    ) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = Result<(), Box<dyn std::error::Error>>> + Send + 'a>> {
         Box::pin(async move {
             let from = &in_files[0];
             let to = &out_files[0];
@@ -199,13 +203,13 @@ impl Action for Extract {
                 fs::create_dir_all(to).unwrap();
             }
 
-            return match extract(target_id, step_id, from, to) {
-                Ok(()) => false,
-                Err(_) => true
-            }
+            extract(target_id, step_id, from, to)
         })
     }
     fn clone_box(&self) -> Box<dyn Action + Send + Sync> {
         Box::new(Self)
+    }
+    fn get_checksum(&self) -> Option<String> {
+        None
     }
 }

@@ -23,6 +23,7 @@ use super::Action;
 pub static ID: &str = "archive";
 
 #[derive(ActionDoc, Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[action_doc(
     id = "archive",
     short_desc = "Compress your files as an archive",
@@ -102,7 +103,7 @@ fn archive(
         for from in from_paths {
             let from_path = Path::new(from);
             if !from_path.exists() {
-                log::panic!("Archive: path doesn't exist {}", from);
+                return Err(format!("Archive: path doesn't exist {}", from).into());
             }
 
             if from_path.is_file() {
@@ -371,7 +372,7 @@ impl Action for Archive {
         out_files: &'a Vec<String>,
         _working_dir: &'a String,
         _maybe_replacements: Option<&'a HashMap<String, String>>,
-    ) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = Result<(), Box<dyn std::error::Error>>> + Send + 'a>> {
         Box::pin(async move {
             let to = &out_files[0];
             let to_path = PathBuf::from(to);
@@ -385,10 +386,14 @@ impl Action for Archive {
                 exclude_paths = archive.exclude.clone().unwrap_or_default();
             }
 
-            let has_error = archive(target_id, step_id, in_files, to, &exclude_paths).is_err();
-            has_error
+            archive(target_id, step_id, in_files, to, &exclude_paths)
         })
     }
+
+    fn get_checksum(&self) -> Option<String> {
+        None
+    }
+
     fn clone_box(&self) -> Box<dyn Action + Send + Sync> {
         Box::new(Self)
     }

@@ -43,6 +43,7 @@ targets:
 {% endraw %}
 "
 )]
+#[serde(deny_unknown_fields)]
 pub struct ShellAction {
     #[action_prop(description = "Shell command to execute", required: true)]
     pub cmd: String,
@@ -109,7 +110,7 @@ impl Action for Shell {
         out_files: &'a Vec<String>,
         _working_dir: &'a String,
         maybe_replacements: Option<&'a HashMap<String, String>>,
-    ) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = Result<(), Box<dyn std::error::Error>>> + Send + 'a>> {
         Box::pin(async move {
             if let PluginAction::Shell { shell } = action {
                 let mut command = shell.cmd.clone();
@@ -163,7 +164,7 @@ impl Action for Shell {
 
                 log::action_info!(step_id, self::ID, "[command] {}", cmd_stdout);
                 let stdout_step_id_clone = String::from(step_id);
-                
+
                 let _ = std::thread::spawn(move || {
                     for line in stdout_reader.lines() {
                         if let Ok(text) = line {
@@ -186,21 +187,23 @@ impl Action for Shell {
                 let status = child.wait().expect("Failed to wait on child");
 
                 if !status.success() {
-                    log::panic!(
+                    return Err(format!(
                         "Command `{}` failed with exit code {}.",
                         command,
-                        status.code().unwrap_or(-1),
-                    );
+                        status.code().unwrap_or(-1)
+                    )
+                    .into());
                 }
-
-                false
-            } else {
-                false
             }
+
+            Ok(())
         })
     }
 
     fn clone_box(&self) -> Box<dyn Action + Send + Sync> {
         Box::new(Self)
+    }
+    fn get_checksum(&self) -> Option<String> {
+        None
     }
 }

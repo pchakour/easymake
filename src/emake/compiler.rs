@@ -15,7 +15,9 @@ fn call_glob(cwd: &str, pattern: &String) -> Option<String> {
                 // let test = String::from(path.to_string_lossy()).replace(&current_dir, "");
                 paths.push(String::from(path.to_string_lossy()));
             },
-            Err(e) => println!("{:?}", e),
+            Err(e) => {
+                log::panic!("Error when executing glob function with pattern {}: {:?}", pattern, e);
+            },
         }
     }
 
@@ -43,7 +45,9 @@ fn call_get_secret(cwd: &str, emakefile_current_path: &str, credential_name: &St
                             return Some(credential_plugin.extract(cwd, &raw_credential));
                         },
                         None => {
-                            log::panic!("Type {} doesn't exist for credential {}", credential_type, credential_name, crate::commands::buid::exit(1).await);
+                            log::panic!(
+                                "Type {} doesn't exist for credential {}", credential_type, credential_name
+                            );
                         }
                     }
                 }
@@ -138,7 +142,7 @@ pub fn compile(
                     }
 
                     if throw_error {
-                        log::panic!("{}", error);
+                        log::panic!("{}", error); // Todo exit with cache save
                     } else {
                         return var_caps[0].to_string();
                     }
@@ -169,7 +173,7 @@ pub fn compile(
         }
 
         // Call functions
-        if let Some(result_function) =  call_function(cwd, emakefile_current_path, &element) {
+        if let Some(result_function) = call_function(cwd, emakefile_current_path, &element) {
             element = result_function;
         }
 

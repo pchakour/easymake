@@ -51,6 +51,7 @@ base64 = "0.22.1"
 git2 = { version = "0.20.2", features = ["https", "ssh"] }
 urlencoding = "2.1.3"
 chrono = "0.4.42"
+async-trait = "0.1.89"
 
 [[bin]]
 name = "emake"

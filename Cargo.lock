@@ -739,6 +739,7 @@ dependencies = [
 name = "easybuild"
 version = "0.0.1-beta"
 dependencies = [
+ "async-trait",
  "base64",
  "blake3",
  "chrono",

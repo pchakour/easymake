@@ -44,7 +44,8 @@ pub trait Action: Send + Sync {
         out_file: &'a Vec<String>,
         working_dir: &'a String,
         default_replacments: Option<&'a HashMap<String, String>>,
-    ) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>>;
+    ) -> Pin<Box<dyn Future<Output = Result<(), Box<dyn std::error::Error>>> + Send + 'a>>;
+    fn get_checksum(&self) -> Option<String>;
     fn insert_in_files<'a>(&'a self, action: &'a PluginAction, in_files: &'a mut Vec<InFile>) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>>;
     fn insert_out_files<'a>(&'a self, action: &'a PluginAction, out_files: &'a mut Vec<String>) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>>;
     fn clone_box(&self) -> Box<dyn Action + Send + Sync>;
@@ -68,13 +69,13 @@ impl ActionsStore {
 
     pub fn get(&self, action: &PluginAction) -> Option<&Box<dyn Action + Send + Sync>> {
         match action {
-            PluginAction::Shell { shell: _ } => self.actions.get(shell::ID),
+            PluginAction::Shell{ shell: _ } => self.actions.get(shell::ID),
             PluginAction::Copy { copy: _ } => self.actions.get(copy::ID),
             PluginAction::Extract { extract: _ } => self.actions.get(extract::ID),
-            PluginAction::Move { mv: _ } => self.actions.get(mv::ID),
-            PluginAction::Remove { remove: _ } => self.actions.get(remove::ID),
-            PluginAction::Archive { archive: _ } => self.actions.get(archive::ID),
-            PluginAction::GitClone { git_clone: _ } => self.actions.get(git_clone::ID),
+            PluginAction::Move{ mv: _} => self.actions.get(mv::ID),
+            PluginAction::Remove{ remove: _} => self.actions.get(remove::ID),
+            PluginAction::Archive{ archive: _} => self.actions.get(archive::ID),
+            PluginAction::GitClone{ git_clone: _} => self.actions.get(git_clone::ID),
         }
     }
 }

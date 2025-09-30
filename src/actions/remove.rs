@@ -3,7 +3,6 @@ use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, future::Future, pin::Pin};
 
 use crate::{
-    console::log,
     emake::{InFile, PluginAction},
 };
 
@@ -11,6 +10,7 @@ use super::Action;
 pub static ID: &str = "remove";
 
 #[derive(ActionDoc, Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[action_doc(
     id = "remove",
     short_desc = "Remove a list of paths",
@@ -81,21 +81,19 @@ impl Action for Remove {
         _out_files: &'a Vec<String>,
         _working_dir: &'a String,
         _maybe_replacements: Option<&'a HashMap<String, String>>,
-    ) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = Result<(), Box<dyn std::error::Error>>> + Send + 'a>> {
         Box::pin(async move {
-            let has_error = false;
             let paths = in_files;
 
-            let remove_result = fs_extra::remove_items(&paths);
-
-            if remove_result.is_err() {
-                log::panic!("Error when deleting files {}", remove_result.err().unwrap());
-            }
-
-            has_error
+            fs_extra::remove_items(&paths).map_err(|error| {
+                format!("Error when deleting files {}", error).into()
+            })
         })
     }
     fn clone_box(&self) -> Box<dyn Action + Send + Sync> {
         Box::new(Self)
+    }
+    fn get_checksum(&self) -> Option<String> {
+        None
     }
 }

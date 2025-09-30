@@ -1,7 +1,7 @@
 use config_macros::ActionDoc;
 use git2::{build::RepoBuilder, Cred, FetchOptions, Progress, RemoteCallbacks};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, future::Future, path::Path, pin::Pin, process};
+use std::{collections::HashMap, future::Future, path::Path, pin::Pin};
 
 use crate::{
     console::log,
@@ -13,6 +13,7 @@ use super::Action;
 pub static ID: &str = "git_clone";
 
 #[derive(ActionDoc, Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[action_doc(
     id = "git_clone",
     short_desc = "Clone a git repository",
@@ -68,7 +69,7 @@ fn compile_secret(
     cwd: &str,
     emakefile_cwd: &str,
     maybe_replacements: Option<&HashMap<String, String>>,
-) -> String {
+) -> Result<String, Box<dyn std::error::Error>> {
     // TODO externalize this code to be reused anywhere and when donwloading files
     let mut compiled_secret =
         emake::compiler::compile(cwd, secret, &emakefile_cwd.to_string(), maybe_replacements);
@@ -83,7 +84,7 @@ fn compile_secret(
         match result_secret.unwrap() {
             emake::loader::Target::SecretEntry(secret_config) => {
                 if !secret_config.contains_key("type") {
-                    log::panic!("The secret {} must contains a type", secret);
+                    return Err(format!("The secret {} must contains a type", secret).into());
                 }
                 let secret_type =
                     String::from(secret_config.get("type").unwrap().as_str().unwrap());
@@ -91,14 +92,16 @@ fn compile_secret(
                 if let Some(secret_plugin) = maybe_secret_plugin {
                     compiled_secret = secret_plugin.extract(cwd, &secret_config);
                 } else {
-                    log::panic!("The credential type {} does not exist", secret_type);
+                    return Err(
+                        format!("The credential type {} does not exist", secret_type).into(),
+                    );
                 }
             }
             _ => {}
         };
     }
 
-    compiled_secret
+    Ok(compiled_secret)
 }
 
 impl Action for GitClone {
@@ -144,21 +147,19 @@ impl Action for GitClone {
         out_files: &'a Vec<String>,
         _working_dir: &'a String,
         maybe_replacements: Option<&'a HashMap<String, String>>,
-    ) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = Result<(), Box<dyn std::error::Error>>> + Send + 'a>> {
         Box::pin(async move {
-            let mut has_error = false;
-
             let git_action = match action {
                 PluginAction::GitClone { git_clone } => git_clone,
                 _ => {
-                    panic!("Error when using git_clone");
+                    log::panic!("Error when using git_clone");
                 }
             };
 
             let repository = &in_files[0];
             let destination = &out_files[0];
 
-            log::action_info!(step_id, ID, "Percent 0% | Cloning repository {}", repository);
+            log::action_info!(step_id, ID, "Cloning repository {}", repository);
             let mut callbacks = RemoteCallbacks::new();
 
             // Progress callback
@@ -172,13 +173,20 @@ impl Action for GitClone {
                     let index_percent = indexed * 100 / total;
                     let percent = (download_percent + index_percent) / 2;
 
-                    log::action_info!(step_id, ID, "Percent {}% | Cloning repository {}", percent, repository);
+                    log::action_debug!(
+                        step_id,
+                        ID,
+                        "Percent {}% | Cloning repository {}",
+                        percent,
+                        repository
+                    );
                 }
+
                 true
             });
 
             if git_action.password.is_some() && git_action.ssh_key.is_some() {
-                panic!("You can't specify a password and an ssh_key at same time");
+                return Err(format!("Error when cloning repository: You can't specify a password and an ssh_key at same time").into());
             }
 
             if git_action.password.is_some() {
@@ -186,11 +194,15 @@ impl Action for GitClone {
                     let default_username = String::from(username_from_url.unwrap_or("username"));
                     let username_secret = git_action.username.as_ref().unwrap_or(&default_username);
                     let username =
-                        compile_secret(username_secret, cwd, emakefile_cwd, maybe_replacements);
+                        compile_secret(username_secret, cwd, emakefile_cwd, maybe_replacements).map_err(|e| {
+                                git2::Error::from_str(&format!("username error: {}", e))
+                            })?;
 
                     let password_secret = git_action.password.as_ref().unwrap();
                     let password =
-                        compile_secret(password_secret, cwd, emakefile_cwd, maybe_replacements);
+                        compile_secret(password_secret, cwd, emakefile_cwd, maybe_replacements).map_err(|e| {
+                                git2::Error::from_str(&format!("password error: {}", e))
+                            })?;
                     Cred::userpass_plaintext(&username, &password)
                 });
             }
@@ -221,16 +233,15 @@ impl Action for GitClone {
             }
 
             match builder.clone(&repository, Path::new(&destination)) {
-                Ok(_) => {}
-                Err(e) => {
-                    log::panic!("Error when cloning repository: {}", e);
-                }
+                Ok(_) => Ok(()),
+                Err(e) => Err(format!("Error when cloning repository: {}", e).into()),
             }
-
-            has_error
         })
     }
     fn clone_box(&self) -> Box<dyn Action + Send + Sync> {
         Box::new(Self)
+    }
+    fn get_checksum(&self) -> Option<String> {
+        None
     }
 }

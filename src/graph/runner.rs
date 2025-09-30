@@ -68,7 +68,10 @@ async fn download_file(
             Ok(username_secret) => match username_secret {
                 Target::SecretEntry(secret_config) => {
                     if !secret_config.contains_key("type") {
-                        log::panic!("The secret {} must contains a type", credentials.username);
+                        log::panic!(
+                            "The secret {} must contains a type",
+                            credentials.username
+                        );
                     }
                     let secret_type =
                         String::from(secret_config.get("type").unwrap().as_str().unwrap());
@@ -76,7 +79,10 @@ async fn download_file(
                     if let Some(secret_plugin) = maybe_secret_plugin {
                         maybe_username_secret = Some(secret_plugin.extract(cwd, &secret_config));
                     } else {
-                        log::panic!("The credential type {} does not exist", secret_type);
+                        log::panic!(
+                            "The credential type {} does not exist",
+                            secret_type
+                        );
                     }
                 }
                 _ => {
@@ -108,7 +114,10 @@ async fn download_file(
                             maybe_password_secret =
                                 Some(secret_plugin.extract(cwd, &secret_config));
                         } else {
-                            log::panic!("The credential type {} does not exist", secret_type);
+                            log::panic!(
+                                "The credential type {} does not exist",
+                                secret_type
+                            );
                         }
                     }
                     _ => {
@@ -153,19 +162,19 @@ async fn download_file(
     log::action_info!(step_id, action_id, "{}", description);
 
     let mut dest = BufWriter::new(File::create(output_path)?);
-    // let mut downloaded: u64 = 0;
+    let mut downloaded: u64 = 0;
     let mut stream = response.bytes_stream();
 
     while let Some(chunk_result) = stream.next().await {
         let chunk = chunk_result?;
         dest.write_all(&chunk)?;
-        // downloaded += chunk.len() as u64;
-        // let mut percent = 0;
-        // if total_size > 0 {
-        //     percent = ((downloaded * 100) / total_size) as usize
-        // }
+        downloaded += chunk.len() as u64;
+        let mut percent = 0;
+        if total_size > 0 {
+            percent = ((downloaded * 100) / total_size) as usize
+        }
 
-        // log::action_info!(step_id, action_id, "Percent {}% | {}", percent, description);
+        log::action_debug!(step_id, action_id, "Percent {}% | {}", percent, description);
     }
 
     log::action_info!(step_id, action_id, "File {} downloaded", url);
@@ -190,19 +199,14 @@ async fn get_real_in_files<'a>(
     cwd: &'a str,
     emakefile_current_path: &'a str,
 ) -> Vec<String> {
-    let plugin = ACTIONS_STORE.get(&step.plugin).expect(&format!(
-        "Can't execute step \"{}\", we are not able to find the plugin used in this step",
+    let plugin = ACTIONS_STORE.get(&step.action).expect(&format!(
+        "Can't execute step \"{}\", we are not able to find the action used in this step",
         step.description.clone()
     ));
 
-    let mut in_files;
-    if step.in_files.is_none() {
-        in_files = Vec::new()
-    } else {
-        in_files = step.in_files.clone().unwrap()
-    };
+    let mut in_files= Vec::new();
 
-    plugin.insert_in_files(&step.plugin, &mut in_files).await;
+    plugin.insert_in_files(&step.action, &mut in_files).await;
 
     let mut real_in_files = Vec::new();
     let working_dir = cache::get_working_dir_path();
@@ -254,7 +258,7 @@ async fn get_real_in_files<'a>(
                 output.push(&filename);
                 let output_string = output.to_str().unwrap().to_string();
                 downloadable_files_indices.insert(file.clone(), output_string.clone());
-                if cache::has_file_changed(&output_string, step_id, &false).await {
+                if cache::has_file_changed(&output_string, step_id, &false) {
                     downloaded_files.push(file.clone());
                     let file_clone = file.clone(); // required if file is &String
                     let target_id_clone = String::from(target_id);
@@ -326,12 +330,12 @@ async fn get_real_out_files<'a>(
     cwd: &'a str,
     emakefile_current_path: &'a str,
 ) -> Vec<String> {
-    let plugin = ACTIONS_STORE.get(&step.plugin).expect(&format!(
+    let plugin = ACTIONS_STORE.get(&step.action).expect(&format!(
         "Can't execute step \"{}\", we are not able to find the plugin used in this step",
         step.description.clone()
     ));
 
-    let mut out_files;
+    let mut out_files = Vec::new();
     let mut real_out_files = Vec::new();
     let working_dir = cache::get_working_dir_path();
     let out_dir = cache::get_out_dir_path();
@@ -341,13 +345,7 @@ async fn get_real_out_files<'a>(
         (String::from("EMAKE_OUT_DIR"), out_dir.to_owned()),
     ]);
 
-    if step.out_files.is_none() {
-        out_files = Vec::new()
-    } else {
-        out_files = step.out_files.clone().unwrap()
-    };
-
-    plugin.insert_out_files(&step.plugin, &mut out_files).await;
+    plugin.insert_out_files(&step.action, &mut out_files).await;
 
     for out_file in &out_files {
         let compiled_out_file_string = emake::compiler::compile(
@@ -378,9 +376,8 @@ async fn run_step<'a>(
     cwd: &'a str,
     emakefile_current_path: &'a str,
     force_out_files: Option<Vec<String>>,
-) -> bool {
-    let mut has_error = false;
-    let plugin = ACTIONS_STORE.get(&step.plugin).expect(&format!(
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let plugin = ACTIONS_STORE.get(&step.action).expect(&format!(
         "Can't execute step \"{}\", we are not able to find the plugin used in this step",
         step.description.clone()
     ));
@@ -405,7 +402,7 @@ async fn run_step<'a>(
     let mut need_to_run_action = real_in_files.len() == 0 && real_out_files.len() == 0;
 
     for file in &real_in_files {
-        let file_changed = cache::has_file_changed(file, step_id, &true).await;
+        let file_changed = cache::has_file_changed(file, step_id, &true);
         if file_changed {
             need_to_run_action = true;
             break;
@@ -414,7 +411,7 @@ async fn run_step<'a>(
 
     if !need_to_run_action {
         for file in &real_out_files {
-            let file_changed = cache::has_file_changed(file, step_id, &false).await;
+            let file_changed = cache::has_file_changed(file, step_id, &false);
             if file_changed {
                 need_to_run_action = true;
                 break;
@@ -422,7 +419,7 @@ async fn run_step<'a>(
         }
     }
 
-    if let Some(checksum_command) = &step.checksum {
+    if let Some(checksum_command) = &plugin.get_checksum() {
         let mut maybe_checksum: Option<String> = None;
         let (status, stdout, stderr) = utils::run_command(
             checksum_command,
@@ -438,9 +435,7 @@ async fn run_step<'a>(
         }
 
         if let Some(checksum) = maybe_checksum {
-            if let Some(current_action_checksum) =
-                cache::get_cache_action_checksum(step_id).await
-            {
+            if let Some(current_action_checksum) = cache::get_cache_action_checksum(step_id).await {
                 if checksum.trim().to_string() != current_action_checksum {
                     log::info!(
                         "Checksum change from {} to {}",
@@ -454,29 +449,33 @@ async fn run_step<'a>(
     }
 
     // Compute action footprint
-    let action_footprint = compute_action_footprint(&step.plugin);
+    let action_footprint = compute_action_footprint(&step.action);
     let register_footprint = get_registered_action_footprint(&step_id, cwd).await;
     if register_footprint.is_none() || action_footprint != register_footprint.unwrap() {
         need_to_run_action = true;
     }
 
     if need_to_run_action {
-        has_error = plugin
+        let run_result = plugin
             .run(
                 cwd,
                 target_id,
                 step_id,
                 emakefile_current_path,
                 false,
-                &step.plugin,
+                &step.action,
                 &real_in_files,
                 &plugin_out_files,
                 &working_dir,
                 Some(&default_replacements),
             )
-            .await;
+            .await
+            .map_err(|e| {
+                let msg = e.to_string();
+                Box::<dyn Error + Send + Sync>::from(msg)
+            });
 
-        if !has_error {
+        if !run_result.is_err() {
             // Register footprint
             register_action_footprint(&step_id, &action_footprint, cwd).await;
 
@@ -489,19 +488,25 @@ async fn run_step<'a>(
                     filename = encoded_filename;
                 }
 
-                let file_absolute_path =
-                    String::from(get_absolute_file_path(&PathBuf::from(cwd), &filename).to_str().unwrap());
+                let file_absolute_path = String::from(
+                    get_absolute_file_path(&PathBuf::from(cwd), &filename)
+                        .to_str()
+                        .unwrap(),
+                );
                 CACHE_IN_FILE_TO_UPDATE.insert((file_absolute_path, String::from(step_id)));
             }
 
             for file in &real_out_files {
-                let file_absolute_path =
-                    String::from(get_absolute_file_path(&PathBuf::from(cwd), file).to_str().unwrap());
+                let file_absolute_path = String::from(
+                    get_absolute_file_path(&PathBuf::from(cwd), file)
+                        .to_str()
+                        .unwrap(),
+                );
                 CACHE_OUT_FILE_TO_UPDATE.insert((file_absolute_path, String::from(step_id)));
             }
 
             // Compute checksum
-            if let Some(checksum_command) = &step.checksum {
+            if let Some(checksum_command) = &plugin.get_checksum() {
                 let mut maybe_checksum: Option<String> = None;
                 let (status, stdout, stderr) = utils::run_command(
                     checksum_command,
@@ -517,18 +522,19 @@ async fn run_step<'a>(
                 }
 
                 if let Some(checksum) = maybe_checksum {
-                    cache::write_cache_action_checksum(step_id, &checksum.trim().to_string())
-                        .await
+                    cache::write_cache_action_checksum(step_id, &checksum.trim().to_string()).await
                 }
             }
 
             log::step_info!(step_id, StepStatus::Finished, step_description);
         }
+
+        return run_result;
     } else {
         log::step_info!(step_id, StepStatus::Skipped, step_description);
     }
 
-    has_error
+    Ok(())
 }
 
 pub fn run_target<'a>(
@@ -589,7 +595,7 @@ pub fn run_target<'a>(
         }
 
         if let Some(steps) = &target.steps {
-            let mut steps_tasks: Vec<JoinHandle<bool>> = Vec::new();
+            let mut steps_tasks: Vec<JoinHandle<Result<(), Box<dyn Error + Send + Sync>>>> = Vec::new();
 
             for (step_index, step) in steps.iter().enumerate() {
                 let step_index_string = format!("{}", step_index);
@@ -615,7 +621,8 @@ pub fn run_target<'a>(
                         )
                         .await
                     };
-                    let handle: JoinHandle<bool> = tokio::spawn(fut);
+                    let handle: JoinHandle<Result<(), Box<dyn Error + Send + Sync>>> =
+                        tokio::spawn(fut);
                     steps_tasks.push(handle);
                 } else {
                     let mut step_out_files =
@@ -652,7 +659,7 @@ pub fn run_target<'a>(
 
                     let m = get_mutex_for_id(&step_id_clone).await;
                     let _guard = m.lock().await;
-                    let has_error = run_step(
+                    let run_step_result = run_step(
                         &target_id_clone,
                         &step_id_clone,
                         &step_clone,
@@ -662,11 +669,12 @@ pub fn run_target<'a>(
                     )
                     .await;
 
-                    if has_error {
+                    if run_step_result.is_err() {
                         log::panic!(
-                            "An error occured when running the step [{}] {}, the status code is not 0",
+                            "An error occured when running the step [{}] {}, the status code is not 0. Error: {}",
                             step_id_clone,
                             step.description,
+                            run_step_result.err().unwrap()
                         );
                     }
                 }
@@ -674,9 +682,12 @@ pub fn run_target<'a>(
 
             let join_results = futures::future::join_all(steps_tasks).await;
             for result in join_results {
-                let has_error = result.unwrap();
-                if has_error {
-                    log::panic!("An error occured when running a step, the status code is not 0");
+                let run_step_result = result.unwrap();
+                if run_step_result.is_err() {
+                    log::panic!(
+                        "An error occured when running a step, the status code is not 0. Error: {}",
+                        run_step_result.err().unwrap()
+                    );
                 }
             }
         }

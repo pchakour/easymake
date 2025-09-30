@@ -91,6 +91,19 @@ macro_rules! action_info {
 }
 
 #[allow(unused)]
+macro_rules! action_debug {
+    // `()` indicates that the macro takes no argument.
+    ($step_id:expr, $action_id:expr, $($arg:tt)*) => {{
+        if log::LogLevel::as_usize(log::get_log_level()) > 0 {
+            // The macro will expand into the contents of this block.
+            log::debug!("[\x1b[90m{}\x1b[0m] \x1b[1;34mAction {}\x1b[0m {}", $step_id, $action_id, format!($($arg)*));
+        } else {
+            log::debug!("\x1b[1;34mAction {}\x1b[0m [\x1b[90m{}\x1b[0m] {}", $action_id, $step_id, format!($($arg)*));
+        }
+    }};
+}
+
+#[allow(unused)]
 macro_rules! info {
     // `()` indicates that the macro takes no argument.
     ($($arg:tt)*) => {{
@@ -116,7 +129,7 @@ macro_rules! text {
 macro_rules! success {
     // `()` indicates that the macro takes no argument.
     ($($arg:tt)*) => {{
-        log::info!("\n\x1b[32m{} {}\x1b[0m", "🎉", format!($($arg)*));
+        log::info!("\x1b[1;32m{} {}\x1b[0m", format!($($arg)*), "🎉");
     }};
 }
 
@@ -132,15 +145,16 @@ macro_rules! warning {
 #[allow(unused)]
 macro_rules! panic {
     // `()` indicates that the macro takes no argument.
-    ($($arg:tt)*, $exit:expr) => {
+    ($($arg:tt)*) => {
         // The macro will expand into the contents of this block.
         if log::LogLevel::as_usize(log::get_log_level()) > 0 {
             // The macro will expand into the contents of this block.
-            log::timestamp!("[\x1b[31mfatal\x1b[0m] \x1b[31m{}\x1b[0m", format!($($arg)*));
+            log::timestamp!("[\x1b[31mfatal\x1b[0m] \x1b[1;91m{}\x1b[0m", format!($($arg)*));
         } else {
-            log::text!("\x1b[31m{}\x1b[0m", format!($($arg)*));
+            log::text!("\x1b[1;91m{}\x1b[0m", format!($($arg)*));
         }
-        $exit;
+        crate::commands::build::exit(1);
+        std::process::exit(1);
     };
 }
 
@@ -189,6 +203,8 @@ pub(crate) use panic;
 pub(crate) use step_info;
 #[allow(unused)]
 pub(crate) use action_info;
+#[allow(unused)]
+pub(crate) use action_debug;
 #[allow(unused)]
 pub(crate) use success;
 #[allow(unused)]

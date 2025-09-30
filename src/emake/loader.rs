@@ -187,7 +187,7 @@ pub fn load_file(root: &str) -> emake::Emakefile {
     let emakefile_result = serde_yml::from_str(&build_file_content);
 
     if emakefile_result.is_err() {
-        log::panic!("An error occured when loading Emakefile {}: \n\n{:?}", root, emakefile_result.as_ref().err());
+        log::panic!("An error occured when loading Emakefile {}: \n\n{}", root, emakefile_result.as_ref().err().unwrap().to_string());
     }
 
     let mut emakefile: emake::Emakefile = emakefile_result.unwrap();

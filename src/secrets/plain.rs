@@ -21,7 +21,6 @@ pub struct Plain;
 
 const SECRET_KEY: &str = "secret";
 
-
 impl Secrets for Plain {
     fn extract<'a>(
         &'a self,

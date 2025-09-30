@@ -24,7 +24,6 @@ pub struct Keyring;
 const SERVICE_KEY: &str = "service";
 const NAME_KEY: &str = "name";
 
-
 impl Secrets for Keyring {
     fn extract<'a>(
         &'a self,

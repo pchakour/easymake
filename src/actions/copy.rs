@@ -11,6 +11,7 @@ use super::Action;
 pub static ID: &str = "copy";
 
 #[derive(ActionDoc, Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[action_doc(
     id = "copy",
     short_desc = "Copy files or folders to a specific destination",
@@ -28,7 +29,7 @@ targets:
             - pre_copy_files
         steps:
             - description: Copy hello world file
-              copy: 
+              copy:
                 from: 
                     - \"{{ EMAKE_WORKING_DIR }}/hello_world.txt\"
                 to:
@@ -95,9 +96,8 @@ impl Action for Copy {
         out_files: &'a Vec<String>,
         _working_dir: &'a String,
         _maybe_replacements: Option<&'a HashMap<String, String>>,
-    ) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = Result<(), Box<dyn std::error::Error>>> + Send + 'a>> {
         Box::pin(async move {
-            let mut has_error = false;
             let mut handles = Vec::new();
 
             let from = in_files;
@@ -132,25 +132,27 @@ impl Action for Copy {
                     let error = format!("Can't copy from {} to {}", src_owned, dest_owned);
                     let copy_result = tokio::fs::copy(src_path, dest_path).await;
 
-                    if copy_result.is_err() {
-                        log::panic!("{}", error);
+                    match copy_result {
+                        Ok(_) => Ok(()),
+                        Err(exception) => Err(format!("{}: {}", error, exception)),
                     }
-                    copy_result
                 }));
             }
 
             let results = futures::future::join_all(handles).await;
             for result in results {
                 if result.is_err() {
-                    has_error = true;
-                    break;
+                    return Err(format!("{:?}", result.err()).into())
                 }
             }
 
-            has_error
+            Ok(())
         })
     }
     fn clone_box(&self) -> Box<dyn Action + Send + Sync> {
         Box::new(Self)
+    }
+    fn get_checksum(&self) -> Option<String> {
+        None
     }
 }

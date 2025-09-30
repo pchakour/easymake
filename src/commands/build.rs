@@ -31,13 +31,13 @@ pub async fn run(target: &String, cwd: &Path, _find_root: bool) {
     // Spawn ctrl+c handler in background thread
     let _ = thread::spawn(async move || {
         ctrl_c_events.recv().unwrap();
-        exit(1).await;
+        exit(1);
     });
 
     // run the main async task
     main_task(target, cwd).await;
 
-    exit(0).await;
+    exit(0);
 }
 
 async fn main_task(target: &String, cwd: &Path) {
@@ -53,8 +53,11 @@ async fn main_task(target: &String, cwd: &Path) {
     graph::runner::run_target(target_path, cwd.to_string_lossy().to_string()).await;
 }
 
-pub async fn exit(code: i32) {
-    log::info!("Build done");
-    cache::write_cache().await;
+pub fn exit(code: i32) {
+    if code == 0 {
+        log::success!("Build successfully done");
+    }
+
+    cache::write_cache(&(code != 0));
     std::process::exit(code);
 }

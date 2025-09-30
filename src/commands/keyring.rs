@@ -1,4 +1,4 @@
-use std::{io, process::exit};
+use std::io;
 
 use crate::console::log;
 use crossterm::{

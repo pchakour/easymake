@@ -1,6 +1,6 @@
 use config_macros::DocType;
-use serde::{Deserialize, Serialize};
-use serde_yml::Value;
+use serde::{Deserialize, Deserializer, Serialize};
+use serde_yml::{Value};
 use std::collections::HashMap;
 
 use crate::actions::{archive, copy, extract, git_clone, mv, remove, shell};
@@ -83,47 +83,25 @@ pub struct Credentials {
     pub password: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Clone)]
+// #[serde(deny_unknown_fields)]
 pub struct Step {
-    #[serde(flatten)]
-    pub plugin: PluginAction, // The actual action like cmd/copy
-    #[serde(default)]
-    pub in_files: Option<Vec<InFile>>, // or Vec<String>, or a custom type
-    #[serde(default)]
-    pub out_files: Option<Vec<String>>, // same here
-    #[serde(default)]
-    pub checksum: Option<String>,
-    #[serde(default)]
-    pub clean: Option<String>,
-    #[serde(default)]
     pub description: String,
+    #[serde(flatten)]
+    pub action: PluginAction, // The actual action like cmd/copy
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(untagged)]
+#[serde(untagged, deny_unknown_fields)]
 pub enum PluginAction {
-    Shell {
-        shell: shell::ShellAction,
-    },
-    Copy {
-        copy: copy::CopyAction,
-    },
-    Extract {
-        extract: extract::ExtractAction,
-    },
-    Move {
-        #[serde(rename = "move")]
-        mv: mv::MoveAction,
-    },
-    Remove {
-        remove: remove::RemoveAction,
-    },
-    Archive {
-        archive: archive::ArchiveSpec,
-    },
-    GitClone {
-        git_clone: git_clone::GitCloneAction,
-    },
+    Shell { shell: shell::ShellAction },
+    Copy { copy: copy::CopyAction },
+    Extract { extract: extract::ExtractAction },
+    #[serde(rename = "move")]
+    Move { mv: mv::MoveAction },
+    Remove { remove: remove::RemoveAction },
+    Archive { archive: archive::ArchiveSpec },
+    GitClone { git_clone: git_clone::GitCloneAction },
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -132,4 +110,38 @@ pub struct Emakefile {
     pub secrets: Option<HashMap<String, SecretEntry>>,
     pub variables: Option<HashMap<String, VariableEntry>>,
     pub targets: HashMap<String, Target>,
+}
+
+
+impl<'de> Deserialize<'de> for Step {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let raw: serde_yml::Mapping = Deserialize::deserialize(deserializer)?;
+        let mut description = None;
+        let mut plugin_map = serde_yml::Mapping::new();
+
+        for (k, v) in &raw {
+            if let Some(key) = k.as_str() {
+                match key {
+                    "description" => description = Some(String::deserialize(v.clone()).map_err(serde::de::Error::custom)?),
+                    _ => {
+                        plugin_map.insert(k.clone(), v.clone());
+                    }
+                }
+            }
+        }
+
+        let action: PluginAction = serde_yml::from_value(Value::Mapping(plugin_map))
+            .map_err(|e| serde::de::Error::custom(format!(
+                "Step deserialization failed (expected fields: description and action fields): {}",
+                e
+            )))?;
+
+        Ok(Step {
+            description: description.unwrap_or_default(),
+            action,
+        })
+    }
 }

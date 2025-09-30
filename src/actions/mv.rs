@@ -15,6 +15,7 @@ use super::Action;
 pub static ID: &str = "move";
 
 #[derive(ActionDoc, Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[action_doc(
     id = "move",
     short_desc = "Move files",
@@ -24,7 +25,7 @@ targets:
     extraction_example:
         steps:
             - description: Retrieve and move url folder
-              move: 
+              move:
                 from: 
                     - https://github.com/pchakour/easymake/archive/refs/heads/main.zip
                 to: \"{{ EMAKE_OUT_DIR }}/easymake_moved\"
@@ -89,9 +90,8 @@ impl Action for Move {
         out_files: &'a Vec<String>,
         _working_dir: &'a String,
         _maybe_replacements: Option<&'a HashMap<String, String>>,
-    ) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = Result<(), Box<dyn std::error::Error>>> + Send + 'a>> {
         Box::pin(async move {
-            let mut has_error = false;
             let src = in_files.clone();
             let destination = out_files[0].clone();
             let options = CopyOptions {
@@ -122,19 +122,19 @@ impl Action for Move {
                 });
 
             if copy_result.is_err() {
-                log::panic!("{}", copy_result.err().unwrap());
+                return Err(format!("{}", copy_result.err().unwrap()).into());
             }
 
             log::action_info!(step_id, ID, "Removing source files");
-            let remove_result = fs_extra::remove_items(&src);
-            if remove_result.is_err() {
-                log::panic!("{}", remove_result.err().unwrap());
-            }
-
-            has_error
+            fs_extra::remove_items(&src).map_err(|error| {
+                format!("{}", error).into()
+            })
         })
     }
     fn clone_box(&self) -> Box<dyn Action + Send + Sync> {
         Box::new(Self)
+    }
+    fn get_checksum(&self) -> Option<String> {
+        None
     }
 }

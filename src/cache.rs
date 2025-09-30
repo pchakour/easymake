@@ -1,8 +1,8 @@
-use std::{
-    path::{Path},
-    time::SystemTime,
+use crate::{
+    console::log, get_cwd, graph::runner::is_url, utils::get_absolute_file_path,
+    CACHE_IN_FILE_TO_UPDATE, CACHE_OUT_FILE_TO_UPDATE,
 };
-use crate::{console::log, get_cwd, graph::runner::is_url, utils::get_absolute_file_path, CACHE_IN_FILE_TO_UPDATE, CACHE_OUT_FILE_TO_UPDATE};
+use std::{path::Path, time::SystemTime};
 
 const CACHE_DIR: &str = ".emake/cache";
 const WORKING_DIR: &str = ".emake/workspace";
@@ -26,38 +26,37 @@ pub async fn create_cache_dir() {
     create_dir(FOOTPRINTS_DIR).await;
 }
 
-pub async fn write_cache() {
+pub fn write_cache(ignore_not_exists: &bool) {
     // Now remove and collect owned JoinHandles
     let cache_in_file_to_update: Vec<(String, String)> = CACHE_IN_FILE_TO_UPDATE
         .iter()
         .map(|entry| entry.key().clone())
         .collect::<Vec<_>>();
 
-    write_file_cache(&cache_in_file_to_update, &true).await;
+    write_file_cache(&cache_in_file_to_update, &true);
 
     let cache_out_file_to_update: Vec<(String, String)> = CACHE_OUT_FILE_TO_UPDATE
         .iter()
         .map(|entry| entry.key().clone())
         .collect::<Vec<_>>();
 
-    write_file_cache(&cache_out_file_to_update, &false).await;
+    write_file_cache(&cache_out_file_to_update, &ignore_not_exists);
 }
 
-async fn write_file_cache(files: &Vec<(String, String)>, ignore_not_exists: &bool) {
+fn write_file_cache(files: &Vec<(String, String)>, ignore_not_exists: &bool) {
     for (file_absolute_path, action_id) in files {
-        if let Ok(file_exists) = tokio::fs::try_exists(&file_absolute_path).await {
+        if let Ok(file_exists) = std::fs::exists(&file_absolute_path) {
             if file_exists {
-                if has_file_changed(file_absolute_path, action_id, ignore_not_exists).await {
-                    let maybe_current_time = get_file_modification_time(&file_absolute_path).await;
+                if has_file_changed(file_absolute_path, action_id, ignore_not_exists) {
+                    let maybe_current_time = get_file_modification_time(&file_absolute_path);
 
                     if let Some(current_time) = maybe_current_time {
-                        write_file_in_cache(file_absolute_path, action_id, &current_time)
-                            .await;
+                        write_file_in_cache(file_absolute_path, action_id, &current_time);
                     }
                 }
             } else {
                 let current_time = format!("{:?}", SystemTime::now()).replace(" ", "");
-                write_file_in_cache(file_absolute_path, action_id, &current_time).await;
+                write_file_in_cache(file_absolute_path, action_id, &current_time);
 
                 if !ignore_not_exists {
                     log::panic!("You try to cache a file that doesn't exist. Check your input/output, the file is {}", file_absolute_path);
@@ -67,23 +66,28 @@ async fn write_file_cache(files: &Vec<(String, String)>, ignore_not_exists: &boo
     }
 }
 
-async fn get_file_modification_time(file_absolute_path: &str) -> Option<String> {
-    match tokio::fs::try_exists(&file_absolute_path).await {
-        Ok(true) => match tokio::fs::metadata(&file_absolute_path).await {
+fn get_file_modification_time(file_absolute_path: &str) -> Option<String> {
+    match std::fs::exists(&file_absolute_path) {
+        Ok(true) => match std::fs::metadata(&file_absolute_path) {
             Ok(metadata) => {
                 let mut current_time = format!("{:?}", metadata.modified().unwrap());
                 current_time = current_time.replace(" ", "");
                 return Some(current_time);
             }
             Err(error) => {
-                println!("ERROR {}", error);
+                log::panic!(
+                    "Error whane getting metadata of file {}: {}",
+                    file_absolute_path,
+                    error
+                );
             }
         },
         Ok(false) => (),
         Err(error) => {
-            panic!(
-                "try_exists failed on file {}: {}",
-                file_absolute_path, error
+            log::panic!(
+                "Check exists failed on file {}: {}",
+                file_absolute_path,
+                error
             );
         }
     }
@@ -91,17 +95,13 @@ async fn get_file_modification_time(file_absolute_path: &str) -> Option<String> 
     None
 }
 
-async fn write_file_in_cache(
-    file_absolute_path: &str,
-    action_id: &str,
-    modification_date: &str,
-) {
+fn write_file_in_cache(file_absolute_path: &str, action_id: &str, modification_date: &str) {
     let cache_file_path = get_file_cache(&file_absolute_path);
     let cache_file_dir = cache_file_path.parent().unwrap();
-    if let Ok(cache_file_dir_exists) = tokio::fs::try_exists(&cache_file_dir).await {
+    if let Ok(cache_file_dir_exists) = std::fs::exists(&cache_file_dir) {
         if !cache_file_dir_exists {
             // println!("Exists dir cache {:?}", cache_file_dir);
-            tokio::fs::create_dir_all(&cache_file_dir).await.unwrap();
+            std::fs::create_dir_all(&cache_file_dir).unwrap();
         }
 
         // println!("Write file cache {:?}", cache_file_path);
@@ -111,9 +111,9 @@ async fn write_file_in_cache(
         action_line.push_str(" ");
         action_line.push_str(&modification_date);
 
-        if let Ok(cache_file_exists) = tokio::fs::try_exists(&cache_file_path).await {
+        if let Ok(cache_file_exists) = std::fs::exists(&cache_file_path) {
             if cache_file_exists {
-                let file_content = tokio::fs::read_to_string(&cache_file_path).await.unwrap();
+                let file_content = std::fs::read_to_string(&cache_file_path).unwrap();
                 let mut lines: Vec<&str> = file_content.split("\n").collect();
                 let mut maybe_line_action_id_index = None;
 
@@ -133,16 +133,12 @@ async fn write_file_in_cache(
                     lines.push(&action_line.as_str());
                 }
 
-                tokio::fs::write(&cache_file_path, &lines.join("\n"))
-                    .await
-                    .unwrap();
+                std::fs::write(&cache_file_path, &lines.join("\n")).unwrap();
                 return ();
             }
         }
 
-        tokio::fs::write(&cache_file_path, &action_line)
-            .await
-            .unwrap();
+        std::fs::write(&cache_file_path, &action_line).unwrap();
     }
 }
 
@@ -205,7 +201,7 @@ pub async fn write_cache_action_checksum(action_id: &str, checksum: &str) {
     }
 }
 
-pub async fn has_file_changed(file: &str, action_id: &str, ignore_not_exists: &bool) -> bool {
+pub fn has_file_changed(file: &str, action_id: &str, ignore_not_exists: &bool) -> bool {
     let cwd = get_cwd();
     let mut filename = String::from(file);
 
@@ -214,14 +210,18 @@ pub async fn has_file_changed(file: &str, action_id: &str, ignore_not_exists: &b
     }
 
     let mut file_changed = !ignore_not_exists;
-    let file_absolute_path = String::from(get_absolute_file_path(&cwd, &filename).to_str().unwrap_or(""));
+    let file_absolute_path = String::from(
+        get_absolute_file_path(&cwd, &filename)
+            .to_str()
+            .unwrap_or(""),
+    );
 
-    if let Some(modification_date) = get_file_modification_time(&file_absolute_path).await {
+    if let Some(modification_date) = get_file_modification_time(&file_absolute_path) {
         file_changed = true;
         let cache_file = get_file_cache(&file_absolute_path);
-        if let Ok(cache_file_exists) = tokio::fs::try_exists(&cache_file).await {
+        if let Ok(cache_file_exists) = std::fs::exists(&cache_file) {
             if cache_file_exists {
-                let file_content = tokio::fs::read_to_string(&cache_file).await.unwrap();
+                let file_content = std::fs::read_to_string(&cache_file).unwrap();
                 let lines: Vec<&str> = file_content.split("\n").collect();
 
                 for line in lines {
