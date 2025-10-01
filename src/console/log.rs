@@ -137,8 +137,12 @@ macro_rules! success {
 macro_rules! warning {
     // `()` indicates that the macro takes no argument.
     ($($arg:tt)*) => {
-        // The macro will expand into the contents of this block.
-        log::timestamp!("[\x1b[33mwarning\x1b[0m] {}", format!($($arg)*));
+        if log::LogLevel::as_usize(log::get_log_level()) > 0 {
+            // The macro will expand into the contents of this block.
+            log::timestamp!("[\x1b[33mwarning\x1b[0m] {}", format!($($arg)*));
+        } else {
+            log::text!("\x1b[1;33m{}\x1b[0m", format!($($arg)*));
+        }
     };
 }
 

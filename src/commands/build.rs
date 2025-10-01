@@ -24,9 +24,9 @@ pub async fn run(target: &String, cwd: &Path, _find_root: bool) {
     let ctrl_c_events = ctrl_channel().unwrap();
 
     // Spawn ctrl+c handler in background thread
-    let _ = thread::spawn(async move || {
+    let _ = thread::spawn(move || {
         ctrl_c_events.recv().unwrap();
-        log::info!("Receive CTRL-C signal from user");
+        log::warning!("Receive CTRL-C signal from user");
         exit(1);
     });
 
