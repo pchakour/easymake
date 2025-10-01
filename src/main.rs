@@ -4,13 +4,11 @@ mod commands;
 mod console;
 mod doc;
 mod emake;
-mod errors;
 mod graph;
 mod secrets;
 mod utils;
 
 use clap::{arg, Command, Parser};
-use indicatif::MultiProgress;
 use std::{env, fs, path::{Path, PathBuf}, sync::{Arc, OnceLock, RwLock}};
 
 #[derive(Parser, Debug)]
@@ -27,14 +25,13 @@ use dashmap::{DashMap, DashSet};
 use once_cell::sync::Lazy;
 use tokio::sync::Mutex;
 
-use crate::{actions::ActionsStore, secrets::SecretsStore};
+use crate::{actions::ActionsStore, console::progress_bar::set_loader_message, secrets::SecretsStore};
 
 pub static GLOBAL_MUTEXES: Lazy<DashMap<String, Arc<Mutex<()>>>> = Lazy::new(DashMap::new);
 pub static ACTIONS_STORE: Lazy<ActionsStore> = Lazy::new(|| actions::instanciate());
 pub static CREDENTIALS_STORE: Lazy<SecretsStore> = Lazy::new(|| secrets::instanciate());
 pub static CACHE_IN_FILE_TO_UPDATE: Lazy<DashSet<(String, String)>> = Lazy::new(DashSet::new);
 pub static CACHE_OUT_FILE_TO_UPDATE: Lazy<DashSet<(String, String)>> = Lazy::new(DashSet::new);
-pub static MULTI_PROGRESS: Lazy<Arc<MultiProgress>> = Lazy::new(|| Arc::new(MultiProgress::new()));
 pub static CWD: OnceLock<RwLock<PathBuf>> = OnceLock::new();
 
 fn init_cwd(cwd: PathBuf) {

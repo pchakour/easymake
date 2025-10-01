@@ -121,7 +121,7 @@ macro_rules! text {
     // `()` indicates that the macro takes no argument.
     ($($arg:tt)*) => {
         // The macro will expand into the contents of this block.
-        println!("{}", format!($($arg)*));
+        crate::console::progress_bar::log_above_bar(format!($($arg)*));
     };
 }
 
@@ -184,7 +184,7 @@ macro_rules! timestamp {
     ($($arg:tt)*) => {{
         let now = std::time::SystemTime::now();
         let dt: chrono::prelude::DateTime<chrono::prelude::Utc> = now.into();
-        println!("[{}] {}", dt.format("%+"), format!($($arg)*));
+        crate::console::progress_bar::log_above_bar(format!("[{}] {}", dt.format("%+"), format!($($arg)*)));
     }}
 }
 

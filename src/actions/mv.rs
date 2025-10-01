@@ -110,7 +110,7 @@ impl Action for Move {
                         percent = ((process_info.copied_bytes * 100) / process_info.total_bytes) as usize
                     }
 
-                    log::action_info!(
+                    log::action_debug!(
                         step_id,
                         ID,
                         "Percent {}% | Copying file {}",

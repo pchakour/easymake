@@ -1,13 +1,14 @@
 use crate::actions::{
     compute_action_footprint, get_registered_action_footprint, register_action_footprint,
 };
+use crate::commands::build::update_progress;
 use crate::console::log::{self, StepStatus};
 use crate::emake::loader::{extract_info_from_path, Target, TargetType};
 use crate::emake::{Credentials, Step};
 use crate::graph::generator::{get_absolute_target_path, to_emakefile_path};
 use crate::utils::get_absolute_file_path;
 use crate::{
-    cache, emake, errors, get_mutex_for_id, graph, secrets, utils, ACTIONS_STORE,
+    cache, emake, get_mutex_for_id, graph, secrets, utils, ACTIONS_STORE,
     CACHE_IN_FILE_TO_UPDATE, CACHE_OUT_FILE_TO_UPDATE, CREDENTIALS_STORE,
 };
 use dashmap::DashMap;
@@ -68,10 +69,7 @@ async fn download_file(
             Ok(username_secret) => match username_secret {
                 Target::SecretEntry(secret_config) => {
                     if !secret_config.contains_key("type") {
-                        log::panic!(
-                            "The secret {} must contains a type",
-                            credentials.username
-                        );
+                        log::panic!("The secret {} must contains a type", credentials.username);
                     }
                     let secret_type =
                         String::from(secret_config.get("type").unwrap().as_str().unwrap());
@@ -79,15 +77,12 @@ async fn download_file(
                     if let Some(secret_plugin) = maybe_secret_plugin {
                         maybe_username_secret = Some(secret_plugin.extract(cwd, &secret_config));
                     } else {
-                        log::panic!(
-                            "The credential type {} does not exist",
-                            secret_type
-                        );
+                        log::panic!("The secret type {} does not exist", secret_type);
                     }
                 }
                 _ => {
                     log::panic!(
-                        "The specified path {} is not a credential",
+                        "The specified path {} is not a secret",
                         credentials.username
                     );
                 }
@@ -114,10 +109,7 @@ async fn download_file(
                             maybe_password_secret =
                                 Some(secret_plugin.extract(cwd, &secret_config));
                         } else {
-                            log::panic!(
-                                "The credential type {} does not exist",
-                                secret_type
-                            );
+                            log::panic!("The credential type {} does not exist", secret_type);
                         }
                     }
                     _ => {
@@ -204,7 +196,7 @@ async fn get_real_in_files<'a>(
         step.description.clone()
     ));
 
-    let mut in_files= Vec::new();
+    let mut in_files = Vec::new();
 
     plugin.insert_in_files(&step.action, &mut in_files).await;
 
@@ -564,12 +556,7 @@ pub fn run_target<'a>(
         let maybe_target = emakefile.targets.get(&target_info.unwrap().target_name);
 
         if maybe_target.is_none() {
-            log::panic!(
-                "{}",
-                errors::target_not_found_error::TargetNotFoundError {
-                    target: target_absolute_path_clone,
-                }
-            );
+            log::panic!("Target not found: {}", target_absolute_path_clone);
         }
         let target = maybe_target.unwrap();
 
@@ -595,7 +582,8 @@ pub fn run_target<'a>(
         }
 
         if let Some(steps) = &target.steps {
-            let mut steps_tasks: Vec<JoinHandle<Result<(), Box<dyn Error + Send + Sync>>>> = Vec::new();
+            let mut steps_tasks: Vec<JoinHandle<Result<(), Box<dyn Error + Send + Sync>>>> =
+                Vec::new();
 
             for (step_index, step) in steps.iter().enumerate() {
                 let step_index_string = format!("{}", step_index);
@@ -611,7 +599,8 @@ pub fn run_target<'a>(
                     let fut = async move {
                         let m = get_mutex_for_id(&step_id_clone).await;
                         let _guard = m.lock().await;
-                        run_step(
+                        update_progress(true, false);
+                        let run_step_result = run_step(
                             &target_id_clone,
                             &step_id_clone,
                             &step_clone,
@@ -619,7 +608,9 @@ pub fn run_target<'a>(
                             &emakefile_path_str,
                             None,
                         )
-                        .await
+                        .await;
+                        update_progress(false, true);
+                        run_step_result
                     };
                     let handle: JoinHandle<Result<(), Box<dyn Error + Send + Sync>>> =
                         tokio::spawn(fut);
@@ -659,6 +650,7 @@ pub fn run_target<'a>(
 
                     let m = get_mutex_for_id(&step_id_clone).await;
                     let _guard = m.lock().await;
+                    update_progress(true, false);
                     let run_step_result = run_step(
                         &target_id_clone,
                         &step_id_clone,
@@ -668,7 +660,7 @@ pub fn run_target<'a>(
                         Some(step_out_files),
                     )
                     .await;
-
+                    update_progress(false, true);
                     if run_step_result.is_err() {
                         log::panic!(
                             "An error occured when running the step [{}] {}, the status code is not 0. Error: {}",

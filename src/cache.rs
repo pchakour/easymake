@@ -76,7 +76,7 @@ fn get_file_modification_time(file_absolute_path: &str) -> Option<String> {
             }
             Err(error) => {
                 log::panic!(
-                    "Error whane getting metadata of file {}: {}",
+                    "Error when getting metadata of file {}: {}",
                     file_absolute_path,
                     error
                 );

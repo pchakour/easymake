@@ -1,6 +1,6 @@
 use config_macros::DocType;
 use serde::{Deserialize, Deserializer, Serialize};
-use serde_yml::{Value};
+use serde_yml::Value;
 use std::collections::HashMap;
 
 use crate::actions::{archive, copy, extract, git_clone, mv, remove, shell};
@@ -94,14 +94,28 @@ pub struct Step {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(untagged, deny_unknown_fields)]
 pub enum PluginAction {
-    Shell { shell: shell::ShellAction },
-    Copy { copy: copy::CopyAction },
-    Extract { extract: extract::ExtractAction },
+    Shell {
+        shell: shell::ShellAction,
+    },
+    Copy {
+        copy: copy::CopyAction,
+    },
+    Extract {
+        extract: extract::ExtractAction,
+    },
     #[serde(rename = "move")]
-    Move { mv: mv::MoveAction },
-    Remove { remove: remove::RemoveAction },
-    Archive { archive: archive::ArchiveSpec },
-    GitClone { git_clone: git_clone::GitCloneAction },
+    Move {
+        mv: mv::MoveAction,
+    },
+    Remove {
+        remove: remove::RemoveAction,
+    },
+    Archive {
+        archive: archive::ArchiveAction,
+    },
+    GitClone {
+        git_clone: git_clone::GitCloneAction,
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -112,35 +126,137 @@ pub struct Emakefile {
     pub targets: HashMap<String, Target>,
 }
 
-
 impl<'de> Deserialize<'de> for Step {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
+        fn set_action<D: serde::de::Error>(
+            action: &mut Option<PluginAction>,
+            plugin_action: PluginAction,
+        ) -> Result<(), D> {
+            if action.is_some() {
+                return Err(D::custom(
+                    "You can't provide several actions in a step, create a new step",
+                ));
+            }
+            *action = Some(plugin_action);
+            Ok(())
+        }
+
         let raw: serde_yml::Mapping = Deserialize::deserialize(deserializer)?;
-        let mut description = None;
-        let mut plugin_map = serde_yml::Mapping::new();
+
+        let mut description: Option<String> = None;
+        let mut action: Option<PluginAction> = None;
 
         for (k, v) in &raw {
-            if let Some(key) = k.as_str() {
-                match key {
-                    "description" => description = Some(String::deserialize(v.clone()).map_err(serde::de::Error::custom)?),
-                    _ => {
-                        plugin_map.insert(k.clone(), v.clone());
-                    }
+            let key = k
+                .as_str()
+                .ok_or_else(|| serde::de::Error::custom("Step key must be a string"))?;
+            match key {
+                "description" => {
+                    description =
+                        Some(String::deserialize(v.clone()).map_err(serde::de::Error::custom)?);
+                }
+                key if key == shell::ID => {
+                    let deserialized_action: shell::ShellAction =
+                        serde_yml::from_value(v.clone()).map_err(serde::de::Error::custom)?;
+
+                    set_action(
+                        &mut action,
+                        PluginAction::Shell {
+                            shell: deserialized_action,
+                        },
+                    )?;
+                }
+                key if key == git_clone::ID => {
+                    let deserialized_action: git_clone::GitCloneAction =
+                        serde_yml::from_value(v.clone()).map_err(serde::de::Error::custom)?;
+                    set_action(
+                        &mut action,
+                        PluginAction::GitClone {
+                            git_clone: deserialized_action,
+                        },
+                    )?;
+                }
+                key if key == archive::ID => {
+                    let deserialized_action: archive::ArchiveAction =
+                        serde_yml::from_value(v.clone()).map_err(serde::de::Error::custom)?;
+                    set_action(
+                        &mut action,
+                        PluginAction::Archive {
+                            archive: deserialized_action,
+                        },
+                    )?;
+                }
+                key if key == extract::ID => {
+                    let deserialized_action: extract::ExtractAction =
+                        serde_yml::from_value(v.clone()).map_err(serde::de::Error::custom)?;
+                    set_action(
+                        &mut action,
+                        PluginAction::Extract {
+                            extract: deserialized_action,
+                        },
+                    )?;
+                }
+                key if key == mv::ID => {
+                    let deserialized_action: mv::MoveAction =
+                        serde_yml::from_value(v.clone()).map_err(serde::de::Error::custom)?;
+                    set_action(
+                        &mut action,
+                        PluginAction::Move {
+                            mv: deserialized_action,
+                        },
+                    )?;
+                }
+                key if key == remove::ID => {
+                    let deserialized_action: remove::RemoveAction =
+                        serde_yml::from_value(v.clone()).map_err(serde::de::Error::custom)?;
+                    set_action(
+                        &mut action,
+                        PluginAction::Remove {
+                            remove: deserialized_action,
+                        },
+                    )?;
+                }
+                key if key == copy::ID => {
+                    let deserialized_action: copy::CopyAction =
+                        serde_yml::from_value(v.clone()).map_err(serde::de::Error::custom)?;
+                    set_action(
+                        &mut action,
+                        PluginAction::Copy {
+                            copy: deserialized_action,
+                        },
+                    )?;
+                }
+                // Add other actions: copy, extract, move, remove...
+                _ => {
+                    return Err(serde::de::Error::custom(format!(
+                        "Unknown key `{}` (expected field description or an action)",
+                        key
+                    )));
                 }
             }
         }
 
-        let action: PluginAction = serde_yml::from_value(Value::Mapping(plugin_map))
-            .map_err(|e| serde::de::Error::custom(format!(
-                "Step deserialization failed (expected fields: description and action fields): {}",
-                e
-            )))?;
+        let description = description.unwrap_or_default();
+        let action = action.ok_or_else(|| {
+            serde::de::Error::custom(format!(
+                "No action found in step. Expected one of: {:?}",
+                [
+                    shell::ID,
+                    git_clone::ID,
+                    archive::ID,
+                    copy::ID,
+                    extract::ID,
+                    mv::ID,
+                    remove::ID
+                ]
+            ))
+        })?;
 
         Ok(Step {
-            description: description.unwrap_or_default(),
+            description,
             action,
         })
     }
