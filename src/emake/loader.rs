@@ -1,6 +1,6 @@
 use crate::{console::log, emake::{self, SecretEntry, VariableEntry}};
 use serde_yml;
-use std::path::{Path, PathBuf};
+use std::{collections::HashMap, path::{Path, PathBuf}};
 
 #[derive(Debug)]
 pub enum TargetType {
@@ -85,6 +85,77 @@ pub fn extract_info_from_path(
     Err(format!("Malformed target path {}", path))
 }
 
+fn tokenize(path: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let mut current = String::new();
+
+    let mut chars = path.chars().peekable();
+
+    while let Some(c) = chars.next() {
+        match c {
+            '.' => {
+                if !current.is_empty() {
+                    tokens.push(current.clone());
+                    current.clear();
+                }
+            }
+            '[' => {
+                if !current.is_empty() {
+                    tokens.push(current.clone());
+                    current.clear();
+                }
+
+                // capture content inside [ ]
+                let mut index = String::new();
+                while let Some(&nc) = chars.peek() {
+                    chars.next();
+                    if nc == ']' {
+                        break;
+                    }
+                    index.push(nc);
+                }
+                tokens.push(format!("[{}]", index));
+            }
+            _ => current.push(c),
+        }
+    }
+
+    if !current.is_empty() {
+        tokens.push(current);
+    }
+
+    tokens
+}
+
+fn resolve_variable<'a>(
+    variables: &'a HashMap<String, serde_yml::Value>,
+    path: &str,
+) -> Option<&'a serde_yml::Value> {
+    let tokens = tokenize(path);
+    let mut current: &serde_yml::Value = variables.get(&tokens[0])?;
+
+    for token in &tokens[1..] {
+        if token.starts_with('[') && token.ends_with(']') {
+            // list index
+            let index: usize = token[1..token.len() - 1].parse().ok()?;
+            if let serde_yml::Value::Sequence(seq) = current {
+                current = seq.get(index)?;
+            } else {
+                return None;
+            }
+        } else {
+            // map key
+            if let serde_yml::Value::Mapping(map) = current {
+                let key = serde_yml::Value::String(token.to_string());
+                current = map.get(&key)?;
+            } else {
+                return None;
+            }
+        }
+    }
+
+    Some(current)
+}
 pub fn get_target_on_path(
     cwd: &str,
     secrets_path: &str,
@@ -157,19 +228,19 @@ pub fn get_target_on_path(
         }
         TargetType::Variables => {
             if let Some(variables) = emakefile.variables {
-                if variables.contains_key(&secrets_path_info.target_name) {
-                    return Ok(Target::VariableEntry(
-                        variables
-                            .get(&secrets_path_info.target_name)
-                            .unwrap()
-                            .to_owned(),
-                    ));
-                } else {
-                    return Err(format!(
-                        "No variable named {} found in Emakefile {}",
-                        secrets_path_info.target_name,
-                        secrets_path_info.emakefile_path.to_str().unwrap()
-                    ));
+                match resolve_variable(&variables, &secrets_path_info.target_name) {
+                    Some(val) =>  {
+                        return Ok(Target::VariableEntry(
+                            val.to_owned(),
+                        ));
+                    },
+                    None => {
+                        return Err(format!(
+                            "No variable named {} found in Emakefile {}",
+                            secrets_path_info.target_name,
+                            secrets_path_info.emakefile_path.to_str().unwrap()
+                        ));
+                    },
                 }
             } else {
                 return Err(format!(

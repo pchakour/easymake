@@ -117,6 +117,8 @@ impl Action for Shell {
                 let in_files_string = in_files.join(" ");
                 let out_files_string = out_files.join(" ");
 
+                log::debug!("In files vec {:?}", in_files);
+                log::debug!("In files string {:?}", in_files_string);
                 let mut replacements = HashMap::from([
                     ("in_files".into(), in_files_string),
                     ("out_files".into(), out_files_string),

@@ -9,7 +9,7 @@ pub mod compiler;
 pub mod loader;
 
 pub type SecretEntry = HashMap<String, Value>;
-pub type VariableEntry = String;
+pub type VariableEntry = Value;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Target {

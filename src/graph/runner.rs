@@ -235,9 +235,10 @@ async fn get_real_in_files<'a>(
             Some(&default_replacements),
         );
         let mut files = Vec::from([compiled_in_file_string.clone()]);
-
+        
         let parsed_compiled_files_result: Result<Vec<String>, _> =
-            serde_yml::from_str(&compiled_in_file_string);
+        serde_json::from_str(&compiled_in_file_string);
+
         match parsed_compiled_files_result {
             Ok(parsed_compiled_files) => files = parsed_compiled_files,
             Err(_) => (),
@@ -349,7 +350,7 @@ async fn get_real_out_files<'a>(
         let mut files = Vec::from([compiled_out_file_string.clone()]);
 
         let parsed_compiled_files_result: Result<Vec<String>, _> =
-            serde_yml::from_str(&compiled_out_file_string);
+            serde_json::from_str(&compiled_out_file_string);
         match parsed_compiled_files_result {
             Ok(parsed_compiled_files) => files = parsed_compiled_files,
             Err(_) => (),
