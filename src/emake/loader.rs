@@ -16,6 +16,7 @@ pub struct PathInfo {
     pub target_name: String,
 }
 
+#[derive(Debug)]
 pub enum Target {
     TargetEntry(emake::Target),
     VariableEntry(VariableEntry),
