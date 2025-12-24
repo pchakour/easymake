@@ -1,13 +1,11 @@
-# Easymake
-
-## Action: copy
-
-### Description
-
+---
+title: copy
+description: 
+---
 Copy files or folders to a specific destination
 
 
-### Example
+## Example
 
 ```yaml
 
@@ -24,7 +22,7 @@ targets:
             - pre_copy_files
         steps:
             - description: Copy hello world file
-              copy: 
+              copy:
                 from: 
                     - "{{ EMAKE_WORKING_DIR }}/hello_world.txt"
                 to:

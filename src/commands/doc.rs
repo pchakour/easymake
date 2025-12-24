@@ -13,25 +13,25 @@ lazy_static! {
 
 pub fn generate() {
     let repository_path = env::current_dir().unwrap();
-    let documentation_folder_path = repository_path.join("docs");
+    let documentation_folder_path = repository_path.join("documentation/src/content/docs/reference");
 
     // Generate actions documentation
     generate_actions_doc(&documentation_folder_path);
 
     // Generate types documentation
-    generate_types_doc(&documentation_folder_path);
+    // generate_types_doc(&documentation_folder_path);
 
     // Generate secrets documentation
     generate_secret_doc(&documentation_folder_path);
 }
 
 pub fn generate_secret_doc(documentation_folder_path: &PathBuf) {
-    let secrets_doc_path = documentation_folder_path.join("secrets.md");
+    // let secrets_doc_path = documentation_folder_path.join("secrets.md");
     let secrets_doc_folder = documentation_folder_path.join("secrets");
 
-    if secrets_doc_path.exists() {
-        fs::remove_file(&secrets_doc_path).unwrap();
-    }
+    // if secrets_doc_path.exists() {
+    //     fs::remove_file(&secrets_doc_path).unwrap();
+    // }
 
     if secrets_doc_folder.exists() {
         fs::remove_dir_all(&secrets_doc_folder).unwrap();
@@ -39,25 +39,18 @@ pub fn generate_secret_doc(documentation_folder_path: &PathBuf) {
 
     fs::create_dir(&secrets_doc_folder).unwrap();
 
-    let mut secrets_documentation = String::from("# Easymake\n\n## Secrets\n\n");
-    secrets_documentation.push_str("| Name | Description |\n");
-    secrets_documentation.push_str("| --- | --- |\n");
-
     for doc in inventory::iter::<SecretDocEntry> {
-        secrets_documentation.push_str(&format!(
-            "| [{}](./secrets/{}.md) | {} |\n",
-            doc.id, doc.id, doc.short_desc
-        ));
-
-        let mut secret_doc = String::from(format!("# Easymake\n\n## Secret: {}\n\n", doc.id));
-        secret_doc.push_str(&format!(
-            "{}\n\n{}\n\nExample:\n```yaml\n{}\n```",
-            doc.short_desc, doc.description, doc.example
-        ));
+        println!("Action {}", doc.id);
+        let mut secret_doc = String::from("---\n");
+        secret_doc.push_str(&format!("title: {}\n", doc.id));
+        secret_doc.push_str(&format!("description: {}\n", doc.short_desc));
+        secret_doc.push_str("---\n");
+        secret_doc.push_str(&format!("{}\n\n{}\n\n", doc.short_desc, doc.description));
+        secret_doc.push_str(&format!("## Example:\n```yaml\n{}\n```\n", doc.example));
         fs::write(&secrets_doc_folder.join(format!("{}.md", doc.id)), secret_doc).unwrap();
     }
 
-    fs::write(&secrets_doc_path, secrets_documentation).unwrap();
+    // fs::write(&secrets_doc_path, secrets_documentation).unwrap();
 }
 
 /**
@@ -105,25 +98,25 @@ pub fn generate_actions_doc(documentation_folder_path: &PathBuf) {
     // Create actions documentation folder
     fs::create_dir(&actions_doc_folder_path).unwrap();
 
-    let mut actions_summary = String::from("| Name | Description |\n");
-    actions_summary.push_str("| ---- | ---------- |\n");
+    // let mut actions_summary = String::from("| Name | Description |\n");
+    // actions_summary.push_str("| ---- | ---------- |\n");
 
     // Iterate over available actions
     for doc in inventory::iter::<ActionDocEntry> {
-        actions_summary.push_str(&format!(
-            "| [{}](./actions/{}.md) | {} |\n",
-            doc.id, doc.id, doc.short_desc
-        ));
+        println!("Action {}", doc.id);
+        // actions_summary.push_str(&format!(
+        //     "| [{}](./actions/{}.md) | {} |\n",
+        //     doc.id, doc.id, doc.short_desc
+        // ));
 
         // Prepare the file content
-        let mut content = String::from("");
-        content.push_str(&format!("# Easymake\n\n## Action: {}\n\n", doc.id));
-        content.push_str(&format!(
-            "### Description\n\n{}\n{}\n\n",
-            doc.short_desc, doc.description
-        ));
-        content.push_str(&format!("### Example\n\n```yaml\n{}\n```\n\n", doc.example));
-        content.push_str(&format!("### Configuration options\n\n"));
+        let mut content = String::from("---\n");
+        content.push_str(&format!("title: {}\n", doc.id));
+        content.push_str(&format!("description: {}\n", doc.short_desc));
+        content.push_str("---\n");
+        content.push_str(&format!("{}\n{}\n\n", doc.short_desc, doc.description));
+        content.push_str(&format!("## Example\n\n```yaml\n{}\n```\n\n", doc.example));
+        content.push_str(&format!("## Configuration options\n\n"));
         content.push_str("| Name | Description | Type | Required |\n");
         content.push_str(&format!("| ---- | ----------- | -- | -- |\n"));
 
@@ -148,18 +141,18 @@ pub fn generate_actions_doc(documentation_folder_path: &PathBuf) {
     }
 
     // Generate actions
-    let actions_template_file_path =
-        documentation_folder_path.join("assets/templates/actions.md.jinja");
-    let actions_template_file_content = fs::read(actions_template_file_path).unwrap();
-    let actions_template_file_content_str =
-        std::str::from_utf8(&actions_template_file_content).unwrap();
-    let actions_file_content =
-        render!(actions_template_file_content_str, actions => actions_summary);
+    // let actions_template_file_path =
+    //     documentation_folder_path.join("assets/templates/actions.md.jinja");
+    // let actions_template_file_content = fs::read(actions_template_file_path).unwrap();
+    // let actions_template_file_content_str =
+    //     std::str::from_utf8(&actions_template_file_content).unwrap();
+    // let actions_file_content =
+    //     render!(actions_template_file_content_str, actions => actions_summary);
 
-    let actions_file_path = documentation_folder_path.join("actions.md");
-    if actions_file_path.exists() {
-        fs::remove_file(&actions_file_path).unwrap();
-    }
+    // let actions_file_path = documentation_folder_path.join("actions.md");
+    // if actions_file_path.exists() {
+    //     fs::remove_file(&actions_file_path).unwrap();
+    // }
 
-    fs::write(actions_file_path, &actions_file_content).unwrap();
+    // fs::write(actions_file_path, &actions_file_content).unwrap();
 }

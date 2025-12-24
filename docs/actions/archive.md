@@ -1,13 +1,11 @@
-# Easymake
-
-## Action: archive
-
-### Description
-
+---
+title: archive
+description: 
+---
 Compress your files as an archive
 
 
-### Example
+## Example
 
 ```yaml
 

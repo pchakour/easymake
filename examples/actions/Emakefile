@@ -1,0 +1,62 @@
+targets:
+  yaml:
+    steps:
+      - description: Testing yaml action
+        yaml:
+          to: "{{ EMAKE_OUT_DIR }}/yaml_action.yml"
+          set:
+            version: 0.1
+            name: yaml
+            type: action
+  move:
+    steps:
+      - description: Retrieve and move url folder
+        move:
+          from:
+            - https://github.com/pchakour/easymake/archive/refs/heads/main.zip
+            - https://github.com/githubtraining/training-manual.git
+          to: "{{ EMAKE_OUT_DIR }}/easymake_moved.zip"
+  git_clone:
+    steps:
+      - description: Cloning a repository
+        git_clone:
+          url: https://github.com/githubtraining/training-manual.git
+          destination: "{{ EMAKE_OUT_DIR }}/training"
+  extract:
+    steps:
+      - description: Retrieve and extract archive from url
+        extract:
+          from: https://github.com/pchakour/easymake/archive/refs/heads/main.zip
+          to: "{{ EMAKE_OUT_DIR }}"
+          out_files:
+            - "{{ '${EMAKE_OUT_DIR}/main/**/*' | glob }}"
+  pre_copy:
+    steps:
+      - description: Generate hello world file
+        shell:
+          out_files: ["{{ EMAKE_WORKING_DIR }}/hello_world.txt"]
+          cmd: touch {{ out_files }}
+  copy:
+    deps:
+      - pre_copy
+    steps:
+      - description: Copy hello world file
+        copy:
+          from:
+            - "{{ EMAKE_WORKING_DIR }}/hello_world.txt"
+          to: "{{ EMAKE_OUT_DIR }}/hello_world.txt"
+  pre_archive:
+    steps:
+      - description: Creating file to archive
+        shell:
+          out_files: ["{{ EMAKE_WORKING_DIR }}/file_to_archive.txt"]
+          cmd: echo 'Hello World !' > {{ out_files }}
+  archive:
+    deps:
+      - pre_archive
+    steps:
+      - description: "Example files compression"
+        archive:
+          from:
+            - "{{ EMAKE_WORKING_DIR }}/file_to_archive.txt"
+          to: "{{ EMAKE_CWD_DIR }}/archive.zip"

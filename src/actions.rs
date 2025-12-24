@@ -8,6 +8,7 @@ pub mod mv;
 pub mod remove;
 pub mod archive;
 pub mod git_clone;
+pub mod yaml;
 
 pub fn compute_action_footprint(action: &PluginAction) -> String {
     let serialized = serde_json::to_vec(action).expect("Failed to serialize PluginAction");
@@ -76,6 +77,7 @@ impl ActionsStore {
             PluginAction::Remove{ remove: _} => self.actions.get(remove::ID),
             PluginAction::Archive{ archive: _} => self.actions.get(archive::ID),
             PluginAction::GitClone{ git_clone: _} => self.actions.get(git_clone::ID),
+            PluginAction::Yaml{ yaml: _} => self.actions.get(yaml::ID),
         }
     }
 }
@@ -91,4 +93,5 @@ pub fn instanciate() -> ActionsStore {
     .add(&String::from(remove::ID), Box::new(remove::Remove))
     .add(&String::from(archive::ID), Box::new(archive::Archive))
     .add(&String::from(git_clone::ID), Box::new(git_clone::GitClone))
+    .add(&String::from(yaml::ID), Box::new(yaml::Yaml))
 }

@@ -3,7 +3,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_yml::Value;
 use std::collections::HashMap;
 
-use crate::actions::{archive, copy, extract, git_clone, mv, remove, shell};
+use crate::actions::{archive, copy, extract, git_clone, mv, remove, shell, yaml};
 
 pub mod compiler;
 pub mod loader;
@@ -116,6 +116,9 @@ pub enum PluginAction {
     GitClone {
         git_clone: git_clone::GitCloneAction,
     },
+    Yaml {
+        yaml: yaml::YamlAction,
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -229,6 +232,16 @@ impl<'de> Deserialize<'de> for Step {
                         },
                     )?;
                 }
+                key if key == yaml::ID => {
+                    let deserialized_action: yaml::YamlAction =
+                        serde_yml::from_value(v.clone()).map_err(serde::de::Error::custom)?;
+                    set_action(
+                        &mut action,
+                        PluginAction::Yaml {
+                            yaml: deserialized_action,
+                        },
+                    )?;
+                }
                 // Add other actions: copy, extract, move, remove...
                 _ => {
                     return Err(serde::de::Error::custom(format!(
@@ -250,7 +263,8 @@ impl<'de> Deserialize<'de> for Step {
                     copy::ID,
                     extract::ID,
                     mv::ID,
-                    remove::ID
+                    remove::ID,
+                    yaml::ID
                 ]
             ))
         })?;

@@ -25,7 +25,7 @@ use dashmap::{DashMap, DashSet};
 use once_cell::sync::Lazy;
 use tokio::sync::Mutex;
 
-use crate::{actions::ActionsStore, console::progress_bar::set_loader_message, secrets::SecretsStore};
+use crate::{actions::ActionsStore, secrets::SecretsStore};
 
 pub static GLOBAL_MUTEXES: Lazy<DashMap<String, Arc<Mutex<()>>>> = Lazy::new(DashMap::new);
 pub static ACTIONS_STORE: Lazy<ActionsStore> = Lazy::new(|| actions::instanciate());

@@ -22,25 +22,23 @@ pub static ID: &str = "shell";
     short_desc = "Execute shell command.",
     description = "The cmd property allow to use `in_files` and `out_files` as variables.",
     example = "
-{% raw %}
 targets:
-    pre_hello_world:
+    pre_shell:
         steps:
             - description: Generate hello world file
               shell:
                 in_files: []
                 out_files: [\"{{ EMAKE_WORKING_DIR }}/hello_world.txt\"]
                 cmd: touch {{ out_files }}
-    hello_world:
+    shell:
         deps:
-            - pre_hello_world
+            - pre_shell
         steps:
             - description: Echo example
               shell:
                 in_files: [\"{{ EMAKE_WORKING_DIR }}/hello_world.txt\"]
                 out_files: [\"{{ EMAKE_WORKING_DIR }}/hello_world.txt\"]
                 cmd: echo 'hello world' >> {{ in_files }}
-{% endraw %}
 "
 )]
 #[serde(deny_unknown_fields)]

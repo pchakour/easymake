@@ -1,0 +1,30 @@
+variables:
+  test:
+    - hello
+    - world
+  test2:
+    hello: world
+secrets:
+  test:
+    type: plain
+    secret: cGFzc3dvcmQ=
+  testz:
+    type: plain
+    secret: dGVzdA==
+
+targets:
+  test:
+    steps:
+      - description: Test
+        shell:
+          # cmd: echo "{{ "[\"test\", \"toto\"]" | array_to_shell }}"
+          # cmd: echo "{{ /variables:test2 | keys_of }}"
+          # cmd: echo "{{ /secrets:test }}"
+          # cmd: echo "{{ "/home/hawk/development/*" | glob | prepend_in_array("AAA/") }}"
+          # cmd: echo "{{ /variables:test | append_text("${EMAKE_CWD_DIR}|AAA") | array_to_shell }}"
+          # cmd: echo "{{ glob("/home/hawk/development/*") | array_to_shell }}"
+          # cmd: echo "{{ EMAKE_CWD_DIR | array_to_shell }}"
+          # cmd: echo "{{ "${EMAKE_CWD_DIR}/test" }}"
+          # cmd: echo "{{ "EMAKE_CWD_DIR/test" }}"
+          # cmd: echo "{{ /test | array_to_shell }}"
+          cmd: echo "{{ //variables:test2 | keys_of | prepend_text('${EMAKE_OUT_DIR}/kibana/kibana/plugins/') }}"

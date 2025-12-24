@@ -1,13 +1,11 @@
-# Easymake
-
-## Action: git_clone
-
-### Description
-
+---
+title: git_clone
+description: 
+---
 Clone a git repository
 
 
-### Example
+## Example
 
 ```yaml
 

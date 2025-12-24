@@ -2,7 +2,7 @@ use crate::{
     console::log, get_cwd, graph::runner::is_url, utils::get_absolute_file_path,
     CACHE_IN_FILE_TO_UPDATE, CACHE_OUT_FILE_TO_UPDATE,
 };
-use std::{path::Path, time::SystemTime};
+use std::{fs, path::Path, time::SystemTime};
 
 const CACHE_DIR: &str = ".emake/cache";
 const WORKING_DIR: &str = ".emake/workspace";
@@ -33,17 +33,17 @@ pub fn write_cache(ignore_not_exists: &bool) {
         .map(|entry| entry.key().clone())
         .collect::<Vec<_>>();
 
-    write_file_cache(&cache_in_file_to_update, &true);
+    write_file_cache(&cache_in_file_to_update, &true, &Vec::from([String::from("in_file")]));
 
     let cache_out_file_to_update: Vec<(String, String)> = CACHE_OUT_FILE_TO_UPDATE
         .iter()
         .map(|entry| entry.key().clone())
         .collect::<Vec<_>>();
 
-    write_file_cache(&cache_out_file_to_update, &ignore_not_exists);
+    write_file_cache(&cache_out_file_to_update, &ignore_not_exists, &Vec::from([String::from("out_file")]));
 }
 
-fn write_file_cache(files: &Vec<(String, String)>, ignore_not_exists: &bool) {
+fn write_file_cache(files: &Vec<(String, String)>, ignore_not_exists: &bool, tags: &Vec<String>) {
     for (file_absolute_path, action_id) in files {
         if let Ok(file_exists) = std::fs::exists(&file_absolute_path) {
             if file_exists {
@@ -51,12 +51,12 @@ fn write_file_cache(files: &Vec<(String, String)>, ignore_not_exists: &bool) {
                     let maybe_current_time = get_file_modification_time(&file_absolute_path);
 
                     if let Some(current_time) = maybe_current_time {
-                        write_file_in_cache(file_absolute_path, action_id, &current_time);
+                        write_file_in_cache(file_absolute_path, action_id, &current_time, tags);
                     }
                 }
             } else {
                 let current_time = format!("{:?}", SystemTime::now()).replace(" ", "");
-                write_file_in_cache(file_absolute_path, action_id, &current_time);
+                write_file_in_cache(file_absolute_path, action_id, &current_time, tags);
 
                 if !ignore_not_exists {
                     log::panic!("You try to cache a file that doesn't exist. Check your input/output, the file is {}", file_absolute_path);
@@ -95,7 +95,7 @@ fn get_file_modification_time(file_absolute_path: &str) -> Option<String> {
     None
 }
 
-fn write_file_in_cache(file_absolute_path: &str, action_id: &str, modification_date: &str) {
+fn write_file_in_cache(file_absolute_path: &str, action_id: &str, modification_date: &str, tags: &Vec<String>) {
     let cache_file_path = get_file_cache(&file_absolute_path);
     let cache_file_dir = cache_file_path.parent().unwrap();
     if let Ok(cache_file_dir_exists) = std::fs::exists(&cache_file_dir) {
@@ -105,6 +105,16 @@ fn write_file_in_cache(file_absolute_path: &str, action_id: &str, modification_d
         }
 
         // println!("Write file cache {:?}", cache_file_path);
+        let glob_paths = glob::glob(&format!("{}/tag_*", cache_file_dir.to_str().unwrap())).unwrap();
+        for path in glob_paths {
+            if let Ok(p) = path {
+                fs::remove_file(p).unwrap();
+            }
+        }
+
+        for tag in tags {
+            fs::write(cache_file_dir.join(format!("tag_{}", tag)), "").unwrap();
+        }
 
         // Check if the line already exist
         let mut action_line = String::from(action_id);

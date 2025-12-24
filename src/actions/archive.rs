@@ -29,13 +29,21 @@ pub static ID: &str = "archive";
     short_desc = "Compress your files as an archive",
     example = "
 targets:
-  hello_world:
+  pre_archive:
+    steps:
+      - description: Creating file to archive
+        shell:
+          out_files: [\"{{ EMAKE_WORKING_DIR }}/file_to_archive.txt\"]
+          cmd: echo 'Hello World !' > {{ out_files }}
+  archive:
+    deps:
+        - pre_archive
     steps:
         - description: 'Example files compression'
           archive:
             from:
-                - from_path
-            to: to_path
+                - \"{{ EMAKE_WORKING_DIR }}/file_to_archive.txt\"
+            to: \"{{ EMAKE_OUT_DIR }}/archive.zip\"
 "
 )]
 pub struct ArchiveAction {

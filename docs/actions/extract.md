@@ -1,13 +1,11 @@
-# Easymake
-
-## Action: extract
-
-### Description
-
+---
+title: extract
+description: Support archive are: zip, tar.gz and tar.xz
+---
 Extract archive
 Support archive are: zip, tar.gz and tar.xz
 
-### Example
+## Example
 
 ```yaml
 
@@ -16,7 +14,7 @@ targets:
     extraction_example:
         steps:
             - description: Retrieve and extract archive from url
-              extract: 
+              extract:
                 from: 
                     - https://github.com/pchakour/easymake/archive/refs/heads/main.zip
                 to:

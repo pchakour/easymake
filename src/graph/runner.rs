@@ -391,8 +391,9 @@ async fn run_step<'a>(
     if force_out_files.is_some() {
         real_out_files = force_out_files.unwrap();
     }
+    let checksum_command = plugin.get_checksum();
 
-    let mut need_to_run_action = real_in_files.len() == 0 && real_out_files.len() == 0;
+    let mut need_to_run_action = (real_in_files.len() == 0 && real_out_files.len() == 0) || checksum_command.is_some();
 
     for file in &real_in_files {
         let file_changed = cache::has_file_changed(file, step_id, &true);
@@ -412,7 +413,7 @@ async fn run_step<'a>(
         }
     }
 
-    if let Some(checksum_command) = &plugin.get_checksum() {
+    if let Some(checksum_command) = &checksum_command {
         let mut maybe_checksum: Option<String> = None;
         let (status, stdout, stderr) = utils::run_command(
             checksum_command,
@@ -499,7 +500,7 @@ async fn run_step<'a>(
             }
 
             // Compute checksum
-            if let Some(checksum_command) = &plugin.get_checksum() {
+            if let Some(checksum_command) = &checksum_command {
                 let mut maybe_checksum: Option<String> = None;
                 let (status, stdout, stderr) = utils::run_command(
                     checksum_command,

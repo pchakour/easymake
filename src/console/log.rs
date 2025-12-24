@@ -188,7 +188,7 @@ macro_rules! timestamp {
     ($($arg:tt)*) => {{
         let now = std::time::SystemTime::now();
         let dt: chrono::prelude::DateTime<chrono::prelude::Utc> = now.into();
-        crate::console::progress_bar::log_above_bar(format!("[{}] {}", dt.format("%+"), format!($($arg)*)));
+        println!("{}", format!("[{}] {}", dt.format("%+"), format!($($arg)*)));
     }}
 }
 

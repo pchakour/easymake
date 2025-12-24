@@ -30,19 +30,15 @@ pub static ID: &str = "extract";
     short_desc = "Extract archive",
     description = "Support archive are: zip, tar.gz and tar.xz",
     example = "
-{% raw %}
 targets:
-    extraction_example:
+    extract:
         steps:
             - description: Retrieve and extract archive from url
               extract:
-                from: 
-                    - https://github.com/pchakour/easymake/archive/refs/heads/main.zip
-                to:
-                    - \"{{ EMAKE_OUT_DIR }}\"
+                from: https://github.com/pchakour/easymake/archive/refs/heads/main.zip
+                to: \"{{ EMAKE_OUT_DIR }}\"
                 out_files:
-                    - \"{{ glob('${EMAKE_OUT_DIR}/main/**/*') }}\"
-{% endraw %}
+                    - \"{{ '${EMAKE_OUT_DIR}/main/**/*' | glob }}\"
 "
 )]
 pub struct ExtractAction {

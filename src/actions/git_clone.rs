@@ -18,15 +18,13 @@ pub static ID: &str = "git_clone";
     id = "git_clone",
     short_desc = "Clone a git repository",
     example = "
-{% raw %}
 targets:
-    clone:
+    git_clone:
         steps:
             - description: Cloning a repository
               git_clone:
                 url: https://github.com/githubtraining/training-manual.git
                 destination: \"{{ EMAKE_OUT_DIR }}/training\"
-{% endraw %}
 "
 )]
 pub struct GitCloneAction {

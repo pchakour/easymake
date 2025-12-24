@@ -16,25 +16,22 @@ pub static ID: &str = "copy";
     id = "copy",
     short_desc = "Copy files or folders to a specific destination",
     example = "
-{% raw %}
 targets:
-    pre_copy_files:
+    pre_copy:
         steps:
             - description: Generate hello world file
               shell:
                 out_files: [\"{{ EMAKE_WORKING_DIR }}/hello_world.txt\"]
                 cmd: touch {{ out_files }}
-    copy_files:
+    copy:
         deps:
-            - pre_copy_files
+            - pre_copy
         steps:
             - description: Copy hello world file
               copy:
                 from: 
                     - \"{{ EMAKE_WORKING_DIR }}/hello_world.txt\"
-                to:
-                    - \"{{ EMAKE_OUT_DIR }}/hello_world.txt\"
-{% endraw %}
+                to: \"{{ EMAKE_OUT_DIR }}/hello_world.txt\"
 "
 )]
 pub struct CopyAction {
@@ -44,7 +41,7 @@ pub struct CopyAction {
         description = "A list of destination files. The number of destinations must be one to copy all sources in the destination or must match the number of destination",
         required = true
     )]
-    pub to: Vec<String>,
+    pub to: String,
 }
 
 pub struct Copy;
@@ -75,9 +72,7 @@ impl Action for Copy {
         Box::pin(async move {
             match action {
                 PluginAction::Copy { copy } => {
-                    for to in &copy.to {
-                        out_files.push(to.to_string());
-                    }
+                    out_files.push(copy.to.to_string());
                 }
                 _ => {}
             }
@@ -101,15 +96,9 @@ impl Action for Copy {
             let mut handles = Vec::new();
 
             let from = in_files;
-            let to = out_files;
+            let destination = &out_files[0];
 
-            for (index, from) in from.iter().enumerate() {
-                let mut destination = &to[0];
-
-                if to.len() > index {
-                    destination = &to[index];
-                }
-
+            for (_, from) in from.iter().enumerate() {
                 let action_description = format!("Copying file {} to {}", from, destination);
                 log::action_info!(step_id, ID, "{}", action_description);
 

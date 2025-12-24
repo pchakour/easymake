@@ -1,13 +1,11 @@
-# Easymake
-
-## Action: remove
-
-### Description
-
+---
+title: remove
+description: 
+---
 Remove a list of paths
 
 
-### Example
+## Example
 
 ```yaml
 

@@ -1,13 +1,11 @@
-# Easymake
-
-## Action: shell
-
-### Description
-
+---
+title: shell
+description: The cmd property allow to use `in_files` and `out_files` as variables.
+---
 Execute shell command.
 The cmd property allow to use `in_files` and `out_files` as variables.
 
-### Example
+## Example
 
 ```yaml
 

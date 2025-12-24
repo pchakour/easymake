@@ -1,17 +1,10 @@
 use std::{
-    collections::{HashMap},
-    io::{BufRead, BufReader},
-    path::{Path, PathBuf},
-    process::{Command, Stdio},
-    sync::{Arc, Mutex},
+    collections::HashMap, fs, io::{BufRead, BufReader}, path::{Path, PathBuf}, process::{Command, Stdio}, sync::{Arc, Mutex}
 };
 
-use crate::{
-    console::log,
-    emake,
-    cache,
-    graph,
-};
+use fs_extra::file;
+
+use crate::{cache, console::log, emake, graph};
 
 const CACHE_DIR: &str = ".emake";
 
@@ -21,6 +14,19 @@ pub async fn run(cwd: &Path) {
     // log::step!(step, total_steps, "Cleaning cache");
     let mut path = PathBuf::from(cwd);
     path.push(CACHE_DIR);
+
+    // Getting out_files from cache
+    let cache_folder = path.join("cache");
+    for out_file_result in glob::glob(&format!("{}/**/tag_*", cache_folder.to_str().unwrap())).unwrap()
+    {
+        if let Ok(out_file) = out_file_result {
+            let dirname = out_file.parent().unwrap();
+            let file_to_delete = dirname.to_string_lossy().replacen(cache_folder.to_str().unwrap(), "", 1);
+            let _ = fs::remove_file(file_to_delete);
+        }
+    }
+
+    // Delete emake directory
     let _ = std::fs::remove_dir_all(path);
 
     let working_dir = cache::get_working_dir_path();
@@ -84,7 +90,7 @@ pub async fn run(cwd: &Path) {
         stdout_thread.join().unwrap();
 
         let stderr_buffer: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new())); // Mutex allows safe mutation
-        // let stderr_buffer_clone = Arc::clone(&stderr_buffer);
+                                                                                     // let stderr_buffer_clone = Arc::clone(&stderr_buffer);
 
         let stderr_thread = std::thread::spawn(move || {
             for line in stderr_reader.lines() {

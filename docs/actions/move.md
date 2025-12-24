@@ -1,13 +1,11 @@
-# Easymake
-
-## Action: move
-
-### Description
-
+---
+title: move
+description: 
+---
 Move files
 
 
-### Example
+## Example
 
 ```yaml
 
@@ -16,7 +14,7 @@ targets:
     extraction_example:
         steps:
             - description: Retrieve and move url folder
-              move: 
+              move:
                 from: 
                     - https://github.com/pchakour/easymake/archive/refs/heads/main.zip
                 to: "{{ EMAKE_OUT_DIR }}/easymake_moved"
