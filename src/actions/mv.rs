@@ -4,7 +4,13 @@ use fs_extra::{
     dir::{CopyOptions, TransitProcessResult},
 };
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, fs, future::Future, path::PathBuf, pin::Pin};
+use std::{
+    collections::HashMap,
+    fs,
+    future::Future,
+    path::{Path, PathBuf},
+    pin::Pin,
+};
 
 use crate::{
     console::log,
@@ -35,13 +41,27 @@ pub struct MoveAction {
     from: Vec<InFile>,
     #[action_prop(
         description = "The destination to move source files. \
-    Can be a folder or a filename if the from property contains only one file. The folder will be automatically created if doesn't exist",
+        Can be a folder or a filename if the from property contains only one file. The folder will be automatically created if doesn't exist",
         required = true
     )]
     to: String,
 }
 
 pub struct Move;
+
+fn preserve_permissions_recursively(src: &Path, dst: &Path) -> std::io::Result<()> {
+    for entry in walkdir::WalkDir::new(src) {
+        let entry = entry?;
+        let src_path = entry.path();
+        let rel = src_path.strip_prefix(src).unwrap();
+        let dst_path = dst.join(rel);
+
+        let meta = fs::metadata(src_path)?;
+        let perm = meta.permissions();
+        fs::set_permissions(dst_path, perm)?;
+    }
+    Ok(())
+}
 
 impl Action for Move {
     fn insert_in_files<'a>(
@@ -83,7 +103,7 @@ impl Action for Move {
         step_id: &'a str,
         _emakefile_cwd: &'a str,
         _silent: bool,
-        _action: &'a PluginAction,
+        action: &'a PluginAction,
         in_files: &'a Vec<String>,
         out_files: &'a Vec<String>,
         _working_dir: &'a String,
@@ -118,16 +138,17 @@ impl Action for Move {
                     copy_inside: is_dest_dir,
                     ..Default::default()
                 };
-    
+
                 // We use copy because move is not working correctly
                 let copy_result =
                     copy_items_with_progress(&src, &destination, &options, |process_info| {
                         let mut percent = 0;
-                        
+
                         if process_info.total_bytes > 0 {
-                            percent = ((process_info.copied_bytes * 100) / process_info.total_bytes) as usize
+                            percent = ((process_info.copied_bytes * 100) / process_info.total_bytes)
+                                as usize
                         }
-    
+
                         log::action_debug!(
                             step_id,
                             ID,
@@ -135,21 +156,28 @@ impl Action for Move {
                             percent,
                             process_info.dir_name
                         );
-    
+
                         TransitProcessResult::ContinueOrAbort
                     });
-    
+
                 if copy_result.is_err() {
                     return Err(format!("{}", copy_result.err().unwrap()).into());
                 }
-    
+
                 log::action_info!(step_id, ID, "Removing source files");
-                return fs_extra::remove_items(&src).map_err(|error| {
-                    format!("{}", error).into()
-                });
+
+                // Preserve permissions
+                for s in &src {
+                    let source = &PathBuf::from(s);
+                    let dest = &PathBuf::from(&destination);
+                    preserve_permissions_recursively(source, dest)?;
+                }
+
+                return fs_extra::remove_items(&src).map_err(|error| format!("{}", error).into());
             } else {
                 fs::rename(&src[0], &destination).unwrap();
             }
+
 
             Ok(())
         })

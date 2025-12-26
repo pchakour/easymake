@@ -1,7 +1,16 @@
 use config_macros::ActionDoc;
-use git2::{build::RepoBuilder, Cred, FetchOptions, Progress, RemoteCallbacks};
+use git2::{
+    build::{CheckoutBuilder, RepoBuilder},
+    Cred, Error, FetchOptions, ObjectType, Progress, RemoteCallbacks, Repository,
+};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, future::Future, path::Path, pin::Pin};
+use std::{
+    collections::HashMap,
+    fs,
+    future::Future,
+    path::{Path, PathBuf},
+    pin::Pin,
+};
 
 use crate::{
     console::log,
@@ -58,6 +67,9 @@ pub struct GitCloneAction {
         required = false
     )]
     pub ssh_key: Option<String>,
+
+    #[action_prop(description = "Clone inside the specify directory", required = false)]
+    pub clone_inside: Option<bool>,
 }
 
 pub struct GitClone;
@@ -102,6 +114,55 @@ fn compile_secret(
     Ok(compiled_secret)
 }
 
+fn clone_and_checkout(
+    url: &str,
+    path: &PathBuf,
+    fetch_opts: FetchOptions,
+    reference: String, // branch | tag | sha
+) -> Result<(), Error> {
+    let mut builder = RepoBuilder::new();
+            builder.fetch_options(fetch_opts);
+    let repo = builder.clone(url, path)?;
+
+    // Resolution candidates (order matters)
+    let candidates = [
+        &reference,
+        &format!("refs/heads/{}", reference),
+        &format!("refs/tags/{}", reference),
+    ];
+
+    let mut target = None;
+
+    for spec in &candidates {
+        if let Ok(obj) = repo.revparse_single(spec) {
+            target = Some(obj);
+            break;
+        }
+    }
+
+    // Fallback: let libgit2 try harder (commit SHA, HEAD~1, etc.)
+    let target = match target {
+        Some(obj) => obj,
+        None => repo.revparse_single(&reference)?,
+    };
+
+    // Checkout
+    repo.checkout_tree(&target, Some(CheckoutBuilder::new().force()))?;
+
+    // Set HEAD correctly
+    match target.kind() {
+        Some(ObjectType::Commit) => {
+            repo.set_head_detached(target.id())?;
+        }
+        _ => {
+            // branch or tag
+            repo.set_head(&target.id().to_string())?;
+        }
+    }
+
+    Ok(())
+}
+
 impl Action for GitClone {
     fn insert_in_files<'a>(
         &'a self,
@@ -126,7 +187,18 @@ impl Action for GitClone {
         Box::pin(async move {
             match action {
                 PluginAction::GitClone { git_clone } => {
-                    out_files.push(git_clone.destination.clone());
+                    let mut destination = PathBuf::from(git_clone.destination.clone());
+                    if git_clone.clone_inside.unwrap_or(false) {
+                        if !fs::exists(&destination).unwrap() {
+                            fs::create_dir_all(&destination).unwrap();
+                        }
+
+                        let git_paths = git_clone.url.split("/");
+                        let repository_name =
+                            git_paths.last().unwrap().strip_suffix(".git").unwrap();
+                        destination = destination.join(repository_name);
+                    }
+                    out_files.push(destination.to_string_lossy().to_string());
                 }
                 _ => {}
             }
@@ -155,7 +227,7 @@ impl Action for GitClone {
             };
 
             let repository = &in_files[0];
-            let destination = &out_files[0];
+            let destination = PathBuf::from(&out_files[0]);
 
             log::action_info!(step_id, ID, "Cloning repository {}", repository);
             let mut callbacks = RemoteCallbacks::new();
@@ -192,13 +264,15 @@ impl Action for GitClone {
                     let default_username = String::from(username_from_url.unwrap_or("username"));
                     let username_secret = git_action.username.as_ref().unwrap_or(&default_username);
                     let username =
-                        compile_secret(username_secret, cwd, emakefile_cwd, maybe_replacements).map_err(|e| {
+                        compile_secret(username_secret, cwd, emakefile_cwd, maybe_replacements)
+                            .map_err(|e| {
                                 git2::Error::from_str(&format!("username error: {}", e))
                             })?;
 
                     let password_secret = git_action.password.as_ref().unwrap();
                     let password =
-                        compile_secret(password_secret, cwd, emakefile_cwd, maybe_replacements).map_err(|e| {
+                        compile_secret(password_secret, cwd, emakefile_cwd, maybe_replacements)
+                            .map_err(|e| {
                                 git2::Error::from_str(&format!("password error: {}", e))
                             })?;
                     Cred::userpass_plaintext(&username, &password)
@@ -220,17 +294,25 @@ impl Action for GitClone {
             }
 
             let mut fetch_opts = FetchOptions::new();
-            fetch_opts.depth(1);
+            // fetch_opts.depth(1);
             fetch_opts.remote_callbacks(callbacks);
 
-            let mut builder = RepoBuilder::new();
-            builder.fetch_options(fetch_opts);
-
+            let mut commit = None;
             if git_action.commit.is_some() {
-                builder.branch(git_action.commit.as_ref().unwrap());
+                commit = Some(emake::compiler::compile(
+                    cwd,
+                    git_action.commit.as_ref().unwrap(),
+                    &emakefile_cwd.to_string(),
+                    maybe_replacements,
+                ));
             }
 
-            match builder.clone(&repository, Path::new(&destination)) {
+            match clone_and_checkout(
+                &repository,
+                &destination,
+                fetch_opts,
+                commit.unwrap_or(String::from("main")),
+            ) {
                 Ok(_) => Ok(()),
                 Err(e) => Err(format!("Error when cloning repository: {}", e).into()),
             }

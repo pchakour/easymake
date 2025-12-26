@@ -46,7 +46,7 @@ pub fn generate_secret_doc(documentation_folder_path: &PathBuf) {
         secret_doc.push_str(&format!("description: {}\n", doc.short_desc));
         secret_doc.push_str("---\n");
         secret_doc.push_str(&format!("{}\n\n{}\n\n", doc.short_desc, doc.description));
-        secret_doc.push_str(&format!("## Example:\n```yaml\n{}\n```\n", doc.example));
+        secret_doc.push_str(&format!("## Example\n```yaml\n{}\n```\n", doc.example));
         fs::write(&secrets_doc_folder.join(format!("{}.md", doc.id)), secret_doc).unwrap();
     }
 

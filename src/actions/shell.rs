@@ -51,6 +51,8 @@ pub struct ShellAction {
     pub out_files: Option<Vec<String>>,
     #[action_prop(description = "Specify a command to compute a checksum of the output. Usefull when your command don't generate output files.", required: false)]
     pub checksum: Option<String>,
+    #[action_prop(description = "Current working directory to execute the command", required: false)]
+    pub cwd: Option<String>,
     #[action_prop(description = "[NOT IMPLEMENTED YET] Specify a command to clean outputs.", required: false)]
     pub clean: Option<String>,
 }
@@ -140,6 +142,9 @@ impl Action for Shell {
                     Some(&replacements),
                 );
 
+                let cwd_as_string = &cwd.to_string();
+                let current_working_directory_for_command = shell.cwd.as_ref().unwrap_or(cwd_as_string);
+
                 let (shell, arg) = if cfg!(windows) {
                     ("cmd", "/C")
                 } else {
@@ -147,7 +152,7 @@ impl Action for Shell {
                 };
 
                 let mut child = Command::new(shell)
-                    .current_dir(cwd)
+                    .current_dir(current_working_directory_for_command)
                     .arg(arg)
                     .arg(&command)
                     .stdout(Stdio::piped())
