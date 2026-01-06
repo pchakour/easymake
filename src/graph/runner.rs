@@ -8,8 +8,8 @@ use crate::emake::{Credentials, Step};
 use crate::graph::generator::{get_absolute_target_path, to_emakefile_path};
 use crate::utils::get_absolute_file_path;
 use crate::{
-    cache, emake, get_mutex_for_id, graph, secrets, utils, ACTIONS_STORE,
-    CACHE_IN_FILE_TO_UPDATE, CACHE_OUT_FILE_TO_UPDATE, CREDENTIALS_STORE,
+    cache, emake, get_mutex_for_id, graph, secrets, utils, ACTIONS_STORE, CACHE_IN_FILE_TO_UPDATE,
+    CACHE_OUT_FILE_TO_UPDATE, CREDENTIALS_STORE,
 };
 use dashmap::DashMap;
 use futures::future::join_all;
@@ -24,8 +24,10 @@ use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::process::ExitStatus;
 use std::sync::Arc;
+use std::time::Duration;
 use std::{collections::HashMap, future::Future};
 use tokio::task::JoinHandle;
+use tokio::time::interval;
 use url::Url;
 
 static RUNNED_TARGETS: Lazy<DashMap<String, Arc<tokio::sync::Mutex<()>>>> = Lazy::new(DashMap::new);
@@ -235,9 +237,9 @@ async fn get_real_in_files<'a>(
             Some(&default_replacements),
         );
         let mut files = Vec::from([compiled_in_file_string.clone()]);
-        
+
         let parsed_compiled_files_result: Result<Vec<String>, _> =
-        serde_json::from_str(&compiled_in_file_string);
+            serde_json::from_str(&compiled_in_file_string);
 
         match parsed_compiled_files_result {
             Ok(parsed_compiled_files) => files = parsed_compiled_files,
@@ -362,6 +364,54 @@ async fn get_real_out_files<'a>(
     real_out_files
 }
 
+// async fn run_step_with_progress<F, T>(task: F) -> T
+// where
+//     F: std::future::Future<Output = T>,
+// {
+//     let mut ticker = interval(tokio::Duration::from_secs(5));
+//     tokio::pin!(task);
+
+//     loop {
+//         tokio::select! {
+//             result = &mut task => {
+//                 // task finished
+//                 return result;
+//             }
+//             _ = ticker.tick() => {
+//                 log::info!("Task is still running...");
+//             }
+//         }
+//     }
+// }
+
+async fn run_with_progress<F, T>(
+    task: F,
+    log_every: Duration,
+    step_id: &str,
+    step_description: &String,
+) -> T
+where
+    F: Future<Output = T>,
+{
+    let mut task = Box::pin(task);
+    let start = tokio::time::Instant::now();
+    let mut ticker = interval(log_every);
+
+    loop {
+        tokio::select! {
+            result = &mut task => {
+                let elapsed = start.elapsed();
+                log::step_info!(step_id, StepStatus::Finished, format!("{} after {:?}", step_description, elapsed));
+                return result;
+            }
+            _ = ticker.tick() => {
+                let elapsed = start.elapsed();
+                log::step_info!(step_id, StepStatus::Running, format!("{} still running  ({:?} elapsed)", step_description, elapsed));
+            }
+        }
+    }
+}
+
 async fn run_step<'a>(
     target_id: &'a str,
     step_id: &'a str,
@@ -393,7 +443,8 @@ async fn run_step<'a>(
     }
     let checksum_command = plugin.get_checksum();
 
-    let mut need_to_run_action = (real_in_files.len() == 0 && real_out_files.len() == 0) || checksum_command.is_some();
+    let mut need_to_run_action =
+        (real_in_files.len() == 0 && real_out_files.len() == 0) || checksum_command.is_some();
 
     for file in &real_in_files {
         let file_changed = cache::has_file_changed(file, step_id, &true);
@@ -450,8 +501,8 @@ async fn run_step<'a>(
     }
 
     if need_to_run_action {
-        let run_result = plugin
-            .run(
+        let run_result = run_with_progress(
+            plugin.run(
                 cwd,
                 target_id,
                 step_id,
@@ -463,8 +514,13 @@ async fn run_step<'a>(
                 &working_dir,
                 Some(&default_replacements),
             )
-            .await
-            .map_err(|e| {
+            ,
+            Duration::from_secs(5),
+            step_id,
+            &step_description,
+        )
+        .await
+        .map_err(|e| {
                 let msg = e.to_string();
                 Box::<dyn Error + Send + Sync>::from(msg)
             });
@@ -520,7 +576,7 @@ async fn run_step<'a>(
                 }
             }
 
-            log::step_info!(step_id, StepStatus::Finished, step_description);
+            // log::step_info!(step_id, StepStatus::Finished, step_description);
         }
 
         return run_result;

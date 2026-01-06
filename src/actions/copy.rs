@@ -1,6 +1,7 @@
 use config_macros::ActionDoc;
+use fs_extra::dir::CopyOptions;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, future::Future, path::PathBuf, pin::Pin};
+use std::{collections::HashMap, fs, future::Future, path::PathBuf, pin::Pin};
 
 use crate::{
     console::log,
@@ -42,6 +43,19 @@ pub struct CopyAction {
         required = true
     )]
     pub to: String,
+    #[action_prop(
+        description = "Overwrite if dest files already exists",
+        required = false,
+        default = true,
+    )]
+    pub overwrite: Option<bool>,
+
+    #[action_prop(
+        description = "Ignore dest file if already exists",
+        required = false,
+        default = false,
+    )]
+    pub skip_exist: Option<bool>,
 }
 
 pub struct Copy;
@@ -72,7 +86,16 @@ impl Action for Copy {
         Box::pin(async move {
             match action {
                 PluginAction::Copy { copy } => {
-                    out_files.push(copy.to.to_string());
+                    let dest_path = PathBuf::from(&copy.to);
+                    if dest_path.is_dir() || dest_path.ends_with("/") {
+                        for src in &copy.from {
+                            let src_path = PathBuf::from(src);
+                            let dirname = src_path.file_name().unwrap();
+                            out_files.push(PathBuf::from(copy.to.to_string()).join(&dirname).to_string_lossy().to_string());
+                        }
+                    } else {
+                        out_files.push(copy.to.to_string());
+                    }
                 }
                 _ => {}
             }
@@ -86,16 +109,24 @@ impl Action for Copy {
         step_id: &'a str,
         _emakefile_cwd: &'a str,
         _silent: bool,
-        _action: &'a PluginAction,
+        action: &'a PluginAction,
         in_files: &'a Vec<String>,
         out_files: &'a Vec<String>,
         _working_dir: &'a String,
         _maybe_replacements: Option<&'a HashMap<String, String>>,
     ) -> Pin<Box<dyn Future<Output = Result<(), Box<dyn std::error::Error>>> + Send + 'a>> {
         Box::pin(async move {
+            let copy_action = match action {
+                PluginAction::Copy { copy } => {
+                    copy
+                },
+                _ => {
+                    log::panic!("Error when using copy");
+                }
+            };
             let mut handles = Vec::new();
 
-            let from = in_files;
+            let from: &Vec<String> = in_files;
             let destination = &out_files[0];
 
             for (_, from) in from.iter().enumerate() {
@@ -104,34 +135,67 @@ impl Action for Copy {
 
                 let src_owned = from.clone();
                 let dest_owned = destination.clone();
+                let overwrite = copy_action.overwrite.unwrap_or(true);
+                let skip_exist = copy_action.skip_exist.unwrap_or(false);
 
                 handles.push(tokio::spawn(async move {
-                    let mut dest_path = PathBuf::from(&dest_owned);
                     let src_path = PathBuf::from(&src_owned);
-                    if dest_path.is_dir() {
-                        let filename = src_path.file_name().unwrap().to_str().unwrap();
-                        dest_path = dest_path.join(filename);
+                    let dest_path = PathBuf::from(&dest_owned);
+
+                    
+                    // Decide if destination is a directory
+                    let is_dest_dir = dest_path.is_dir() || dest_owned.ends_with('/');
+                    
+                    // Ensure directory exists
+                    let dest_dir = if is_dest_dir {
+                        dest_path.clone()
+                    } else {
+                        dest_path.parent().unwrap().to_path_buf()
+                    };
+                    
+                    fs::create_dir_all(&dest_dir).unwrap();
+
+                    if dest_dir.is_dir() {
+                        let options = CopyOptions {
+                            overwrite,
+                            skip_exist,
+                            ..Default::default()
+                        };
+
+                        let result = fs_extra::copy_items(&[&src_owned], &dest_dir, &options);
+
+                        if let Err(e) = result {
+                            return Err(format!(
+                                "Can't copy using fs_extra::copy_items function {} → {}: {:?}",
+                                src_owned, dest_owned, e
+                            ));
+                        }
+                    } else {
+                        if dest_path.exists() && !skip_exist && !overwrite {
+                            return Err(format!("Dest path {} already exists", dest_path.to_str().unwrap()));
+                        }
+
+                        if let Err(e) = fs::copy(&src_path, &dest_path) {
+                            return Err(format!(
+                                "Can't copy using fs::copy function {} → {}: {:?}",
+                                src_owned, dest_owned, e
+                            ));
+                        }
                     }
 
-                    let dest_dir = dest_path.parent().unwrap();
-                    if !tokio::fs::try_exists(dest_dir).await.unwrap() {
-                        tokio::fs::create_dir_all(dest_dir).await.unwrap();
-                    }
-
-                    let error = format!("Can't copy from {} to {}", src_owned, dest_owned);
-                    let copy_result = tokio::fs::copy(src_path, dest_path).await;
-
-                    match copy_result {
-                        Ok(_) => Ok(()),
-                        Err(exception) => Err(format!("{}: {}", error, exception)),
-                    }
+                    Ok(())
                 }));
             }
 
             let results = futures::future::join_all(handles).await;
             for result in results {
                 if result.is_err() {
-                    return Err(format!("{:?}", result.err()).into())
+                    return Err(format!("{:?}", result.err().unwrap()).into());
+                } else {
+                    let thread_result = result.unwrap();
+                    if thread_result.is_err() {
+                        return Err(format!("{:?}", thread_result.err().unwrap()).into());
+                    }
                 }
             }
 

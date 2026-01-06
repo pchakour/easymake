@@ -143,7 +143,12 @@ impl Action for Shell {
                 );
 
                 let cwd_as_string = &cwd.to_string();
-                let current_working_directory_for_command = shell.cwd.as_ref().unwrap_or(cwd_as_string);
+                let current_working_directory_for_command = emake::compiler::compile(
+                    cwd,
+                    shell.cwd.as_ref().unwrap_or(cwd_as_string),
+                    &emakefile_cwd.to_string(),
+                    Some(&replacements),
+                );
 
                 let (shell, arg) = if cfg!(windows) {
                     ("cmd", "/C")
@@ -151,6 +156,7 @@ impl Action for Shell {
                     ("sh", "-c")
                 };
 
+                log::info!("Current workingdirectory to execute the command is {}", current_working_directory_for_command);
                 let mut child = Command::new(shell)
                     .current_dir(current_working_directory_for_command)
                     .arg(arg)
