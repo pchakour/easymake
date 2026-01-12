@@ -121,13 +121,14 @@ fn clone_and_checkout(
     reference: String, // branch | tag | sha
 ) -> Result<(), Error> {
     let mut builder = RepoBuilder::new();
-            builder.fetch_options(fetch_opts);
+    builder.fetch_options(fetch_opts);
     let repo = builder.clone(url, path)?;
 
     // Resolution candidates (order matters)
     let candidates = [
         &reference,
         &format!("refs/heads/{}", reference),
+        &format!("origin/{}", reference),
         &format!("refs/tags/{}", reference),
     ];
 
@@ -188,16 +189,6 @@ impl Action for GitClone {
             match action {
                 PluginAction::GitClone { git_clone } => {
                     let mut destination = PathBuf::from(git_clone.destination.clone());
-                    if git_clone.clone_inside.unwrap_or(false) {
-                        if !fs::exists(&destination).unwrap() {
-                            fs::create_dir_all(&destination).unwrap();
-                        }
-
-                        let git_paths = git_clone.url.split("/");
-                        let repository_name =
-                            git_paths.last().unwrap().strip_suffix(".git").unwrap();
-                        destination = destination.join(repository_name);
-                    }
                     out_files.push(destination.to_string_lossy().to_string());
                 }
                 _ => {}
@@ -226,96 +217,124 @@ impl Action for GitClone {
                 }
             };
 
-            let repository = &in_files[0];
-            let destination = PathBuf::from(&out_files[0]);
+            for (index, repository) in in_files.iter().enumerate() {
+                let mut destination = PathBuf::from(&out_files[0]);
 
-            log::action_info!(step_id, ID, "Cloning repository {}", repository);
-            let mut callbacks = RemoteCallbacks::new();
+                if git_action.clone_inside.unwrap_or(false) {
+                    if !fs::exists(&destination).unwrap() {
+                        fs::create_dir_all(&destination).unwrap();
+                    }
 
-            // Progress callback
-            callbacks.transfer_progress(|stats: Progress| {
-                let total = stats.total_objects();
-                if total > 0 {
-                    let received = stats.received_objects();
-                    let indexed = stats.indexed_objects();
-
-                    let download_percent = received * 100 / total;
-                    let index_percent = indexed * 100 / total;
-                    let percent = (download_percent + index_percent) / 2;
-
-                    log::action_debug!(
-                        step_id,
-                        ID,
-                        "Percent {}% | Cloning repository {}",
-                        percent,
-                        repository
-                    );
+                    let git_paths = repository.split("/");
+                    let repository_name = git_paths.last().unwrap().strip_suffix(".git").unwrap();
+                    destination = destination.join(repository_name);
                 }
 
-                true
-            });
+                log::action_info!(step_id, ID, "Cloning repository {}", repository);
+                let mut callbacks = RemoteCallbacks::new();
 
-            if git_action.password.is_some() && git_action.ssh_key.is_some() {
-                return Err(format!("Error when cloning repository: You can't specify a password and an ssh_key at same time").into());
-            }
+                // Progress callback
+                callbacks.transfer_progress(|stats: Progress| {
+                    let total = stats.total_objects();
+                    if total > 0 {
+                        let received = stats.received_objects();
+                        let indexed = stats.indexed_objects();
 
-            if git_action.password.is_some() {
-                callbacks.credentials(|_url, username_from_url, _allowed_types| {
-                    let default_username = String::from(username_from_url.unwrap_or("username"));
-                    let username_secret = git_action.username.as_ref().unwrap_or(&default_username);
-                    let username =
-                        compile_secret(username_secret, cwd, emakefile_cwd, maybe_replacements)
-                            .map_err(|e| {
-                                git2::Error::from_str(&format!("username error: {}", e))
-                            })?;
+                        let download_percent = received * 100 / total;
+                        let index_percent = indexed * 100 / total;
+                        let percent = (download_percent + index_percent) / 2;
 
-                    let password_secret = git_action.password.as_ref().unwrap();
-                    let password =
-                        compile_secret(password_secret, cwd, emakefile_cwd, maybe_replacements)
-                            .map_err(|e| {
-                                git2::Error::from_str(&format!("password error: {}", e))
-                            })?;
-                    Cred::userpass_plaintext(&username, &password)
+                        log::action_debug!(
+                            step_id,
+                            ID,
+                            "Percent {}% | Cloning repository {}",
+                            percent,
+                            repository
+                        );
+                    }
+
+                    true
                 });
+
+                if git_action.password.is_some() && git_action.ssh_key.is_some() {
+                    return Err(format!("Error when cloning repository: You can't specify a password and an ssh_key at same time").into());
+                }
+
+                if git_action.password.is_some() {
+                    callbacks.credentials(|_url, username_from_url, _allowed_types| {
+                        let default_username =
+                            String::from(username_from_url.unwrap_or("username"));
+                        let username_secret =
+                            git_action.username.as_ref().unwrap_or(&default_username);
+                        let username =
+                            compile_secret(username_secret, cwd, emakefile_cwd, maybe_replacements)
+                                .map_err(|e| {
+                                    git2::Error::from_str(&format!("username error: {}", e))
+                                })?;
+
+                        let password_secret = git_action.password.as_ref().unwrap();
+                        let password =
+                            compile_secret(password_secret, cwd, emakefile_cwd, maybe_replacements)
+                                .map_err(|e| {
+                                    git2::Error::from_str(&format!("password error: {}", e))
+                                })?;
+                        Cred::userpass_plaintext(&username, &password)
+                    });
+                }
+
+                if git_action.ssh_key.is_some() {
+                    callbacks.credentials(|_url, username_from_url, _allowed_types| {
+                        Cred::ssh_key(
+                            git_action
+                                .username
+                                .as_ref()
+                                .unwrap_or(&String::from(username_from_url.unwrap())),
+                            None,
+                            Path::new(git_action.ssh_key.as_ref().unwrap()),
+                            None,
+                        )
+                    });
+                }
+
+                let mut fetch_opts = FetchOptions::new();
+                // fetch_opts.depth(1);
+                fetch_opts.remote_callbacks(callbacks);
+
+                let mut commit = None;
+                if git_action.commit.is_some() {
+                    commit = Some(emake::compiler::compile(
+                        cwd,
+                        git_action.commit.as_ref().unwrap(),
+                        &emakefile_cwd.to_string(),
+                        maybe_replacements,
+                    ));
+
+                    if commit.is_some() {
+                        let parsed_compiled_commit: Result<Vec<String>, _> =
+                            serde_json::from_str(&commit.clone().unwrap());
+
+                        match parsed_compiled_commit {
+                            Ok(compiled) => commit = Some(compiled[index].clone()),
+                            Err(_) => (),
+                        }
+                    }
+
+                }
+
+                match clone_and_checkout(
+                    &repository,
+                    &destination,
+                    fetch_opts,
+                    commit.unwrap_or(String::from("main")),
+                ) {
+                    Ok(_) => {},
+                    Err(e) => {
+                        return Err(format!("Error when cloning repository: {}", e).into());
+                    },
+                }
             }
 
-            if git_action.ssh_key.is_some() {
-                callbacks.credentials(|_url, username_from_url, _allowed_types| {
-                    Cred::ssh_key(
-                        git_action
-                            .username
-                            .as_ref()
-                            .unwrap_or(&String::from(username_from_url.unwrap())),
-                        None,
-                        Path::new(git_action.ssh_key.as_ref().unwrap()),
-                        None,
-                    )
-                });
-            }
-
-            let mut fetch_opts = FetchOptions::new();
-            // fetch_opts.depth(1);
-            fetch_opts.remote_callbacks(callbacks);
-
-            let mut commit = None;
-            if git_action.commit.is_some() {
-                commit = Some(emake::compiler::compile(
-                    cwd,
-                    git_action.commit.as_ref().unwrap(),
-                    &emakefile_cwd.to_string(),
-                    maybe_replacements,
-                ));
-            }
-
-            match clone_and_checkout(
-                &repository,
-                &destination,
-                fetch_opts,
-                commit.unwrap_or(String::from("main")),
-            ) {
-                Ok(_) => Ok(()),
-                Err(e) => Err(format!("Error when cloning repository: {}", e).into()),
-            }
+            Ok(())
         })
     }
     fn clone_box(&self) -> Box<dyn Action + Send + Sync> {
