@@ -9,7 +9,7 @@ use std::{
 
 use crate::{
     console::log,
-    emake::{self, InFile, PluginAction},
+    emake::{self, InFile, PluginAction}, get_cwd,
 };
 use config_macros::ActionDoc;
 
@@ -100,7 +100,6 @@ impl Action for Shell {
 
     fn run<'a>(
         &'a self,
-        cwd: &'a str,
         _target_id: &'a str,
         step_id: &'a str,
         emakefile_cwd: &'a str,
@@ -136,18 +135,18 @@ impl Action for Shell {
                 }
 
                 command = emake::compiler::compile(
-                    cwd,
                     &command,
                     &emakefile_cwd.to_string(),
                     Some(&replacements),
+                    None
                 );
 
-                let cwd_as_string = &cwd.to_string();
+                let cwd_as_string = get_cwd().to_string_lossy().to_string();
                 let current_working_directory_for_command = emake::compiler::compile(
-                    cwd,
-                    shell.cwd.as_ref().unwrap_or(cwd_as_string),
+                    &emakefile_cwd.to_string(),
                     &emakefile_cwd.to_string(),
                     Some(&replacements),
+                    Some(shell.cwd.as_ref().unwrap_or(&cwd_as_string)),
                 );
 
                 let (shell, arg) = if cfg!(windows) {

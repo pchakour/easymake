@@ -27,7 +27,6 @@ const NAME_KEY: &str = "name";
 impl Secrets for Keyring {
     fn extract<'a>(
         &'a self,
-        _cwd: &'a str,
         unextracted_secrets: &'a HashMap<String, serde_yml::Value>,
     ) -> PlainSecret {
         if !unextracted_secrets.contains_key(NAME_KEY) {

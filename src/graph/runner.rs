@@ -8,8 +8,7 @@ use crate::emake::{Credentials, Step};
 use crate::graph::generator::{get_absolute_target_path, to_emakefile_path};
 use crate::utils::get_absolute_file_path;
 use crate::{
-    cache, emake, get_mutex_for_id, graph, secrets, utils, ACTIONS_STORE, CACHE_IN_FILE_TO_UPDATE,
-    CACHE_OUT_FILE_TO_UPDATE, CREDENTIALS_STORE,
+    ACTIONS_STORE, CACHE_IN_FILE_TO_UPDATE, CACHE_OUT_FILE_TO_UPDATE, CREDENTIALS_STORE, cache, emake, get_cwd, get_mutex_for_id, graph, secrets, utils
 };
 use dashmap::DashMap;
 use futures::future::join_all;
@@ -41,7 +40,6 @@ async fn download_file(
     step_id: &str,
     url: &str,
     output_path: &str,
-    cwd: &str,
     emakefile_cwd: &str,
     maybe_credentials: &Option<Credentials>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
@@ -49,7 +47,6 @@ async fn download_file(
     let mut maybe_password_secret: Option<secrets::PlainSecret> = None;
     if let Some(credentials) = maybe_credentials {
         let result_username_secret = emake::loader::get_target_on_path(
-            cwd,
             &credentials.username,
             emakefile_cwd,
             Some(TargetType::Secrets),
@@ -60,7 +57,6 @@ async fn download_file(
         > = None;
         if let Some(credential_password) = &credentials.password {
             maybe_result_password_secret = Some(emake::loader::get_target_on_path(
-                cwd,
                 &credential_password,
                 emakefile_cwd,
                 Some(TargetType::Secrets),
@@ -77,7 +73,7 @@ async fn download_file(
                         String::from(secret_config.get("type").unwrap().as_str().unwrap());
                     let maybe_secret_plugin = CREDENTIALS_STORE.get(&secret_type);
                     if let Some(secret_plugin) = maybe_secret_plugin {
-                        maybe_username_secret = Some(secret_plugin.extract(cwd, &secret_config));
+                        maybe_username_secret = Some(secret_plugin.extract(&secret_config));
                     } else {
                         log::panic!("The secret type {} does not exist", secret_type);
                     }
@@ -109,7 +105,7 @@ async fn download_file(
                         let maybe_secret_plugin = CREDENTIALS_STORE.get(&secret_type);
                         if let Some(secret_plugin) = maybe_secret_plugin {
                             maybe_password_secret =
-                                Some(secret_plugin.extract(cwd, &secret_config));
+                                Some(secret_plugin.extract(&secret_config));
                         } else {
                             log::panic!("The credential type {} does not exist", secret_type);
                         }
@@ -190,7 +186,6 @@ async fn get_real_in_files<'a>(
     target_id: &'a str,
     step_id: &'a str,
     step: &'a Step,
-    cwd: &'a str,
     emakefile_current_path: &'a str,
 ) -> Vec<String> {
     let plugin = ACTIONS_STORE.get(&step.action).expect(&format!(
@@ -205,6 +200,7 @@ async fn get_real_in_files<'a>(
     let mut real_in_files = Vec::new();
     let working_dir = cache::get_working_dir_path();
     let out_dir = cache::get_out_dir_path();
+    let cwd = get_cwd().to_string_lossy().to_string();
     let default_replacements = HashMap::from([
         (String::from("EMAKE_WORKING_DIR"), working_dir.to_owned()),
         (String::from("EMAKE_CWD_DIR"), cwd.to_owned()),
@@ -231,10 +227,10 @@ async fn get_real_in_files<'a>(
         }
 
         let compiled_in_file_string = emake::compiler::compile(
-            cwd,
             &file_path,
             emakefile_current_path,
             Some(&default_replacements),
+            None
         );
         let mut files = Vec::from([compiled_in_file_string.clone()]);
 
@@ -258,7 +254,6 @@ async fn get_real_in_files<'a>(
                     let file_clone = file.clone(); // required if file is &String
                     let target_id_clone = String::from(target_id);
                     let step_id_clone = String::from(step_id);
-                    let cwd_clone = cwd.to_string();
                     let emakefile_current_path = emakefile_current_path.to_string();
                     let file_credentials = file_credentials.clone();
 
@@ -268,7 +263,6 @@ async fn get_real_in_files<'a>(
                             &step_id_clone,
                             &file_clone,
                             &output_string,
-                            &cwd_clone,
                             &emakefile_current_path,
                             &file_credentials,
                         )
@@ -322,7 +316,6 @@ async fn get_real_in_files<'a>(
 async fn get_real_out_files<'a>(
     _step_id: &'a str,
     step: &'a Step,
-    cwd: &'a str,
     emakefile_current_path: &'a str,
 ) -> Vec<String> {
     let plugin = ACTIONS_STORE.get(&step.action).expect(&format!(
@@ -336,7 +329,7 @@ async fn get_real_out_files<'a>(
     let out_dir = cache::get_out_dir_path();
     let default_replacements = HashMap::from([
         (String::from("EMAKE_WORKING_DIR"), working_dir.to_owned()),
-        (String::from("EMAKE_CWD_DIR"), cwd.to_owned()),
+        (String::from("EMAKE_CWD_DIR"), get_cwd().to_string_lossy().to_string()),
         (String::from("EMAKE_OUT_DIR"), out_dir.to_owned()),
     ]);
 
@@ -344,10 +337,10 @@ async fn get_real_out_files<'a>(
 
     for out_file in &out_files {
         let compiled_out_file_string = emake::compiler::compile(
-            cwd,
             out_file,
             emakefile_current_path,
             Some(&default_replacements),
+            None
         );
         let mut files = Vec::from([compiled_out_file_string.clone()]);
 
@@ -416,7 +409,6 @@ async fn run_step<'a>(
     target_id: &'a str,
     step_id: &'a str,
     step: &'a Step,
-    cwd: &'a str,
     emakefile_current_path: &'a str,
     force_out_files: Option<Vec<String>>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
@@ -429,14 +421,15 @@ async fn run_step<'a>(
 
     let working_dir = cache::get_working_dir_path();
     let out_dir = cache::get_out_dir_path();
+    let cwd = get_cwd();
     let default_replacements = HashMap::from([
         (String::from("EMAKE_WORKING_DIR"), working_dir.to_owned()),
-        (String::from("EMAKE_CWD_DIR"), cwd.to_owned()),
+        (String::from("EMAKE_CWD_DIR"), cwd.to_string_lossy().to_string()),
         (String::from("EMAKE_OUT_DIR"), out_dir.to_owned()),
     ]);
     let real_in_files =
-        get_real_in_files(target_id, step_id, step, cwd, emakefile_current_path).await;
-    let plugin_out_files = get_real_out_files(step_id, step, cwd, emakefile_current_path).await;
+        get_real_in_files(target_id, step_id, step, emakefile_current_path).await;
+    let plugin_out_files = get_real_out_files(step_id, step, emakefile_current_path).await;
     let mut real_out_files = plugin_out_files.clone();
     if force_out_files.is_some() {
         real_out_files = force_out_files.unwrap();
@@ -468,7 +461,6 @@ async fn run_step<'a>(
         let mut maybe_checksum: Option<String> = None;
         let (status, stdout, stderr) = utils::run_command(
             checksum_command,
-            Path::new(cwd),
             Path::new(emakefile_current_path),
             Some(&default_replacements),
         );
@@ -495,7 +487,7 @@ async fn run_step<'a>(
 
     // Compute action footprint
     let action_footprint = compute_action_footprint(&step.action);
-    let register_footprint = get_registered_action_footprint(&step_id, cwd).await;
+    let register_footprint = get_registered_action_footprint(&step_id).await;
     if register_footprint.is_none() || action_footprint != register_footprint.unwrap() {
         need_to_run_action = true;
     }
@@ -503,7 +495,6 @@ async fn run_step<'a>(
     if need_to_run_action {
         let run_result = run_with_progress(
             plugin.run(
-                cwd,
                 target_id,
                 step_id,
                 emakefile_current_path,
@@ -527,7 +518,7 @@ async fn run_step<'a>(
 
         if !run_result.is_err() {
             // Register footprint
-            register_action_footprint(&step_id, &action_footprint, cwd).await;
+            register_action_footprint(&step_id, &action_footprint).await;
 
             // Register files cache
             for file in real_in_files {
@@ -539,7 +530,7 @@ async fn run_step<'a>(
                 }
 
                 let file_absolute_path = String::from(
-                    get_absolute_file_path(&PathBuf::from(cwd), &filename)
+                    get_absolute_file_path(&filename)
                         .to_str()
                         .unwrap(),
                 );
@@ -548,7 +539,7 @@ async fn run_step<'a>(
 
             for file in &real_out_files {
                 let file_absolute_path = String::from(
-                    get_absolute_file_path(&PathBuf::from(cwd), file)
+                    get_absolute_file_path( file)
                         .to_str()
                         .unwrap(),
                 );
@@ -560,7 +551,6 @@ async fn run_step<'a>(
                 let mut maybe_checksum: Option<String> = None;
                 let (status, stdout, stderr) = utils::run_command(
                     checksum_command,
-                    Path::new(cwd),
                     Path::new(emakefile_current_path),
                     Some(&default_replacements),
                 );
@@ -589,7 +579,6 @@ async fn run_step<'a>(
 
 pub fn run_target<'a>(
     target_absolute_path: String,
-    cwd: String,
 ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
     Box::pin(async move {
         if RUNNED_TARGETS.contains_key(&target_absolute_path) {
@@ -602,11 +591,10 @@ pub fn run_target<'a>(
         RUNNED_TARGETS.insert(target_absolute_path.clone(), mutex.clone());
         let _target_lock = mutex.lock().await;
 
-        let emakefile_path = to_emakefile_path(&target_absolute_path, &cwd);
+        let emakefile_path = to_emakefile_path(&target_absolute_path);
         let emakefile = emake::loader::load_file(&emakefile_path.to_string_lossy().to_string());
         let target_info = extract_info_from_path(
             &target_absolute_path,
-            &cwd,
             &emakefile_path.to_string_lossy().to_string(),
         );
 
@@ -623,13 +611,11 @@ pub fn run_target<'a>(
 
             for dependency in deps {
                 let dependency_target_path =
-                    get_absolute_target_path(dependency, &emakefile.path.clone().unwrap(), &cwd);
+                    get_absolute_target_path(dependency, &emakefile.path.clone().unwrap());
 
                 let dependency_target_path_clone = dependency_target_path.clone();
-                let cwd_clone = cwd.clone();
-
                 let handle = tokio::spawn(async move {
-                    run_target(dependency_target_path_clone, cwd_clone).await;
+                    run_target(dependency_target_path_clone).await;
                 });
 
                 dependencies_tasks.push(handle);
@@ -646,7 +632,6 @@ pub fn run_target<'a>(
             for (step_index, step) in steps.iter().enumerate() {
                 let step_index_string = format!("{}", step_index);
                 let step_id = target_absolute_path.clone() + "/" + step_index_string.as_str();
-                let cwd_clone = cwd.clone();
                 let step_id_clone: String = step_id.clone();
                 let target_id_clone = target_absolute_path.clone();
                 let step_clone = step.clone();
@@ -662,7 +647,6 @@ pub fn run_target<'a>(
                             &target_id_clone,
                             &step_id_clone,
                             &step_clone,
-                            &cwd_clone,
                             &emakefile_path_str,
                             None,
                         )
@@ -675,7 +659,7 @@ pub fn run_target<'a>(
                     steps_tasks.push(handle);
                 } else {
                     let mut step_out_files =
-                        get_real_out_files(&step_id, &step, &cwd, &emakefile_path_str_clone).await;
+                        get_real_out_files(&step_id, &step, &emakefile_path_str_clone).await;
                     // Find last out_files
                     let mut current_step_index = step_index.clone() + 1;
                     while current_step_index < steps.len() {
@@ -687,7 +671,6 @@ pub fn run_target<'a>(
                             &target_id_clone,
                             &current_step_id,
                             current_step,
-                            &cwd,
                             &emakefile_path_str_clone,
                         )
                         .await;
@@ -696,7 +679,6 @@ pub fn run_target<'a>(
                                 step_out_files = get_real_out_files(
                                     &current_step_id,
                                     current_step,
-                                    &cwd,
                                     &emakefile_path_str_clone,
                                 )
                                 .await;
@@ -713,7 +695,6 @@ pub fn run_target<'a>(
                         &target_id_clone,
                         &step_id_clone,
                         &step_clone,
-                        &cwd_clone,
                         &emakefile_path_str,
                         Some(step_out_files),
                     )

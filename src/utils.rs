@@ -1,4 +1,4 @@
-use crate::emake;
+use crate::{emake, get_cwd};
 use std::{
     collections::HashMap,
     io::Read,
@@ -8,7 +8,6 @@ use std::{
 
 pub fn run_command(
     command: &String,
-    cwd: &Path,
     emakefile_path: &Path,
     replacements: Option<&HashMap<String, String>>,
 ) -> (
@@ -17,10 +16,10 @@ pub fn run_command(
     String,
 ) {
     let compiled_command = emake::compiler::compile(
-        cwd.to_str().unwrap(),
         command,
         &String::from(emakefile_path.to_str().unwrap()),
         replacements,
+        None
     );
 
     let mut shell = "sh";
@@ -32,7 +31,7 @@ pub fn run_command(
     }
 
     let mut output = Command::new(shell)
-        .current_dir(cwd)
+        .current_dir(get_cwd())
         .arg(arg) // Pass the command string to the shell
         .arg(compiled_command)
         .stdout(Stdio::piped())
@@ -85,11 +84,10 @@ pub fn run_command(
     (status, stdout_output, stderr_output)
 }
 
-pub fn get_absolute_file_path(cwd: &std::path::PathBuf, file: &str) -> std::path::PathBuf {
+pub fn get_absolute_file_path(file: &str) -> std::path::PathBuf {
     let mut path = std::path::PathBuf::from(&file);
     if !path.is_absolute() {
-        path = cwd.clone();
-        path.push(file);
+        path = get_cwd().join(file);
     }
     path
 }

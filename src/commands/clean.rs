@@ -2,14 +2,13 @@ use std::{
     collections::HashMap, fs, io::{BufRead, BufReader}, path::{Path, PathBuf}, process::{Command, Stdio}, sync::{Arc, Mutex}
 };
 
-use crate::{cache, console::log, emake, graph};
+use crate::{cache, console::log, emake, get_cwd, graph};
 
 const CACHE_DIR: &str = ".emake";
 
-pub async fn run(cwd: &Path) {
+pub async fn run() {
     // let clean_commands = graph::analysor::get_clean_commands(cwd);
-    let mut path = PathBuf::from(cwd);
-    path.push(CACHE_DIR);
+    let path = get_cwd().join(CACHE_DIR);
 
     // Getting out_files from cache
     let cache_folder = path.join("cache");

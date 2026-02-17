@@ -1,4 +1,4 @@
-use crate::{console::log, emake::{self, SecretEntry, VariableEntry}};
+use crate::{console::log, emake::{self, SecretEntry, VariableEntry}, get_cwd};
 use serde_yml;
 use std::{collections::HashMap, path::{Path, PathBuf}};
 
@@ -43,7 +43,6 @@ fn target_type_str_to_enum(target_type: &str) -> Result<TargetType, String> {
 
 pub fn extract_info_from_path(
     path: &str,
-    cwd: &str,
     emakefile_current_path: &str,
 ) -> Result<PathInfo, String> {
     let mut target_split: Vec<&str> = path.split('/').collect();
@@ -66,7 +65,8 @@ pub fn extract_info_from_path(
             }
         }
 
-        let mut emakefile_path = Path::new(cwd).join("Emakefile");
+        let cwd = get_cwd();
+        let mut emakefile_path = cwd.join("Emakefile");
         if !from_root {
             emakefile_path = PathBuf::from(emakefile_current_path);
         }
@@ -158,13 +158,12 @@ fn resolve_variable<'a>(
     Some(current)
 }
 pub fn get_target_on_path(
-    cwd: &str,
     secrets_path: &str,
     emakefile_current_path: &str,
     maybe_force_type: Option<TargetType>,
 ) -> Result<Target, String> {
     // Check if the target exists in the current Emakefile
-    let secrets_path_info_result = extract_info_from_path(secrets_path, cwd, emakefile_current_path);
+    let secrets_path_info_result = extract_info_from_path(secrets_path, emakefile_current_path);
     let mut secrets_path_info = secrets_path_info_result?;
 
     if let Ok(emakefile_exists) = std::fs::exists(&secrets_path_info.emakefile_path) {

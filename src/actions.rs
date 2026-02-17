@@ -15,8 +15,8 @@ pub fn compute_action_footprint(action: &PluginAction) -> String {
     blake3::hash(&serialized).to_hex().to_string()
 }
 
-pub async fn get_registered_action_footprint(id: &str, cwd: &str) -> Option<String> {
-    let footprint_path = to_footprint_path(id, cwd);
+pub async fn get_registered_action_footprint(id: &str) -> Option<String> {
+    let footprint_path = to_footprint_path(id);
     let footprint_file_exists = tokio::fs::try_exists(&footprint_path).await.unwrap();
     if footprint_file_exists {
         let footprint = tokio::fs::read_to_string(&footprint_path).await.unwrap();
@@ -26,8 +26,8 @@ pub async fn get_registered_action_footprint(id: &str, cwd: &str) -> Option<Stri
     None
 }
 
-pub async fn register_action_footprint(id: &str, footprint: &str, cwd: &str) {
-    let footprint_path = to_footprint_path(id, cwd);
+pub async fn register_action_footprint(id: &str, footprint: &str) {
+    let footprint_path = to_footprint_path(id);
     tokio::fs::create_dir_all(&footprint_path.parent().unwrap()).await.unwrap();
     tokio::fs::write(footprint_path, footprint).await.unwrap();
 }
@@ -35,7 +35,6 @@ pub async fn register_action_footprint(id: &str, footprint: &str, cwd: &str) {
 pub trait Action: Send + Sync {
     fn run<'a>(
         &'a self,
-        cwd: &'a str,
         target_id: &'a str,
         step_id: &'a str,
         emakefile_cwd: &'a str,

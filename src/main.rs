@@ -102,5 +102,5 @@ async fn main() {
     init_cwd(cwd.clone());
 
     cache::create_cache_dir().await;
-    commands::run_command(&matches, &cwd).await;
+    commands::run_command(&matches).await;
 }

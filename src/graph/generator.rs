@@ -6,13 +6,14 @@ use std::path::Path;
 use std::path::PathBuf;
 
 use crate::cache;
+use crate::get_cwd;
 use crate::graph::InFile;
 
 pub fn get_absolute_target_path(
     path: &String,
     emakefile_current_path: &String,
-    cwd: &str,
 ) -> String {
+    let cwd = get_cwd();
     let path_separator = String::from("/");
     if path.starts_with("//") {
         let mut path_parts: Vec<&str> = path.split(&path_separator).collect();
@@ -35,7 +36,7 @@ pub fn get_absolute_target_path(
                 .unwrap()
                 .to_str()
                 .unwrap())
-        .replace(cwd, "");
+        .replace(&cwd.to_string_lossy().to_string(), "");
         let target_path;
         if path_parts.len() > 0 {
             target_path = format!(
@@ -76,7 +77,7 @@ pub struct TargetProperties {
     pub actions: Vec<ActionProperties>,
 }
 
-pub fn to_footprint_path(target_absolute_path: &str, _cwd: &str) -> PathBuf {
+pub fn to_footprint_path(target_absolute_path: &str) -> PathBuf {
     let footprints_dir = cache::get_footprints_dir_path();
     let footprint_path: String = target_absolute_path
         .replace("targets:", "_targets_/")
@@ -84,10 +85,11 @@ pub fn to_footprint_path(target_absolute_path: &str, _cwd: &str) -> PathBuf {
     Path::new(&footprints_dir).join(footprint_path)
 }
 
-pub fn to_emakefile_path(target_absolute_path: &str, root_folder: &str) -> PathBuf {
+pub fn to_emakefile_path(target_absolute_path: &str) -> PathBuf {
+    let cwd = get_cwd();
     let re = Regex::new(r"targets:.+$").unwrap();
     let mut result = re.replace(target_absolute_path, "").to_string();
     result = result.replace("//", "");
-    let target_path_parts = Path::new(root_folder).join(result).join("Emakefile");
+    let target_path_parts = cwd.join(result).join("Emakefile");
     target_path_parts
 }

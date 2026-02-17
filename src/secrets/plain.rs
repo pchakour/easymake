@@ -24,7 +24,6 @@ const SECRET_KEY: &str = "secret";
 impl Secrets for Plain {
     fn extract<'a>(
         &'a self,
-        _cwd: &'a str,
         unextracted_secrets: &'a HashMap<String, serde_yml::Value>,
     ) -> PlainSecret {
         if !unextracted_secrets.contains_key(SECRET_KEY) {

@@ -1,5 +1,4 @@
 use clap::ArgMatches;
-use std::path::Path;
 
 use crate::console::log::{set_log_level, LogLevel};
 
@@ -9,18 +8,18 @@ pub mod graph;
 pub mod doc;
 pub mod keyring;
 
-pub async fn run_command(matches: &ArgMatches, cwd: &Path) {
+pub async fn run_command(matches: &ArgMatches) {
     let log_level = matches.get_one::<String>("log_level").unwrap();
     set_log_level(LogLevel::from_str(log_level));
 
     if let Some(matches) = matches.subcommand_matches("build") {
         let target = matches.get_one::<String>("target").expect("required");
-        build::run(target, cwd, true).await;
+        build::run(target, true).await;
     } else if let Some(_matches) = matches.subcommand_matches("clean") {
-        clean::run(cwd).await;
+        clean::run().await;
     } else if let Some(matches) = matches.subcommand_matches("graph") {
         let target = matches.get_one::<String>("target").expect("required");
-        graph::run(target, cwd);
+        graph::run(target);
     } else if let Some(_matches) = matches.subcommand_matches("doc") {
         doc::generate();
     } else if let Some(matches) = matches.subcommand_matches("keyring") {
