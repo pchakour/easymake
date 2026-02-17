@@ -357,26 +357,6 @@ async fn get_real_out_files<'a>(
     real_out_files
 }
 
-// async fn run_step_with_progress<F, T>(task: F) -> T
-// where
-//     F: std::future::Future<Output = T>,
-// {
-//     let mut ticker = interval(tokio::Duration::from_secs(5));
-//     tokio::pin!(task);
-
-//     loop {
-//         tokio::select! {
-//             result = &mut task => {
-//                 // task finished
-//                 return result;
-//             }
-//             _ = ticker.tick() => {
-//                 log::info!("Task is still running...");
-//             }
-//         }
-//     }
-// }
-
 async fn run_with_progress<F, T>(
     task: F,
     log_every: Duration,

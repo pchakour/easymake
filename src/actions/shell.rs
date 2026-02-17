@@ -143,10 +143,10 @@ impl Action for Shell {
 
                 let cwd_as_string = get_cwd().to_string_lossy().to_string();
                 let current_working_directory_for_command = emake::compiler::compile(
-                    &emakefile_cwd.to_string(),
+                    shell.cwd.as_ref().unwrap_or(&cwd_as_string),
                     &emakefile_cwd.to_string(),
                     Some(&replacements),
-                    Some(shell.cwd.as_ref().unwrap_or(&cwd_as_string)),
+                    None,
                 );
 
                 let (shell, arg) = if cfg!(windows) {
