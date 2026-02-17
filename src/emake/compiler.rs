@@ -1,15 +1,13 @@
-use std::{collections::HashMap, path::Path};
+use std::{collections::HashMap, path::{Path, PathBuf}};
 
 use glob::glob;
 use regex::Regex;
 
 use crate::{
-    console::log,
-    emake::{
+    CREDENTIALS_STORE, console::log, emake::{
         self,
-        loader::{get_target_on_path, Target, TargetType},
-    },
-    CREDENTIALS_STORE,
+        loader::{Target, TargetType, get_target_on_path},
+    }, get_cwd
 };
 
 #[derive(PartialEq)]
@@ -79,15 +77,17 @@ fn parse_array_or_string(input: &str) -> Result<Vec<String>, String> {
 
 fn call_glob(
     pipe_in: &mut String,
-    cwd: &str,
     _maybe_replacements: Option<&HashMap<String, String>>,
+    cwd: Option<&str>,
 ) {
+    let global_cwd = get_cwd().to_string_lossy().to_string();
+    let real_cwd = cwd.unwrap_or(&global_cwd.as_str());
     match parse_array_or_string(pipe_in) {
         Ok(patterns) => {
             let mut paths = Vec::<String>::new();
 
             for pattern in patterns {
-                let absolute_pattern = Path::new(cwd).join(&pattern);
+                let absolute_pattern = PathBuf::from(real_cwd).join(&pattern);
 
                 for entry in glob(&absolute_pattern.to_string_lossy())
                     .unwrap_or_else(|_| panic!("Failed to read glob pattern {}", pattern))
@@ -192,12 +192,10 @@ fn call_concat_text(pipe_in: &mut String, text: &str, prepend: bool) {
 }
 
 fn resolve_secret(
-    cwd: &str,
     emakefile_current_path: &str,
     credential_name: &String,
 ) -> Option<String> {
     let result_secrets_config = emake::loader::get_target_on_path(
-        cwd,
         credential_name,
         emakefile_current_path,
         Some(TargetType::Secrets),
@@ -211,7 +209,7 @@ fn resolve_secret(
                 let maybe_credential_plugin = CREDENTIALS_STORE.get(&credential_type);
                 match maybe_credential_plugin {
                     Some(credential_plugin) => {
-                        return Some(credential_plugin.extract(cwd, &raw_credential));
+                        return Some(credential_plugin.extract(&raw_credential));
                     }
                     None => {
                         log::panic!(
@@ -233,12 +231,11 @@ fn resolve_secret(
 
 fn call_values_of(
     pipe_in: &mut String,
-    cwd: &str,
     emakefile_current_path: &str,
     maybe_replacements: Option<&HashMap<String, String>>,
 ) {
     let resolved =
-        get_user_variable(pipe_in, cwd, emakefile_current_path).unwrap_or_else(|_| pipe_in.clone());
+        get_user_variable(pipe_in, emakefile_current_path).unwrap_or_else(|_| pipe_in.clone());
 
     match serde_json::from_str(&resolved) {
         Ok(parsed) => match parsed {
@@ -247,10 +244,10 @@ fn call_values_of(
                     .values()
                     .map(|v| {
                         compile(
-                            cwd,
                             &stringify_variable_value(v),
                             emakefile_current_path,
                             maybe_replacements,
+                            None
                         )
                     })
                     .collect::<Vec<String>>();
@@ -271,7 +268,6 @@ fn call_values_of(
 
 fn resolve_variable(
     value: &String,
-    cwd: &str,
     emakefile_current_path: &str,
     maybe_replacements: Option<&HashMap<String, String>>,
 ) -> String {
@@ -281,13 +277,12 @@ fn resolve_variable(
         }
     }
     
-    _resolve_variable(value, value, cwd, emakefile_current_path, 0)
+    _resolve_variable(value, value, emakefile_current_path, 0)
 }
 
 fn _resolve_variable(
     value: &String,
     original: &String,
-    cwd: &str,
     emakefile_current_path: &str,
     counter: i16,
 ) -> String {
@@ -295,12 +290,12 @@ fn _resolve_variable(
         log::panic!("Recursive limit for variable resolution is reached: [value={value}]");
     }
 
-    match get_user_variable(value, cwd, emakefile_current_path) {
+    match get_user_variable(value, emakefile_current_path) {
         Ok(v) => {
             if v == *value {
                 return v;
             }
-            return _resolve_variable(&v, original, cwd, emakefile_current_path, counter);
+            return _resolve_variable(&v, original, emakefile_current_path, counter);
         }
         Err(err) => {
             if original == value {
@@ -313,11 +308,10 @@ fn _resolve_variable(
 
 fn call_keys_of(
     pipe_in: &mut String,
-    cwd: &str,
     emakefile_current_path: &str,
     maybe_replacements: Option<&HashMap<String, String>>,
 ) {
-    let resolved = get_user_variable(&pipe_in, cwd, emakefile_current_path)
+    let resolved = get_user_variable(&pipe_in, emakefile_current_path)
         .unwrap_or_else(|_| pipe_in.clone());
 
     match serde_json::from_str(&resolved) {
@@ -327,10 +321,10 @@ fn call_keys_of(
                     .keys()
                     .map(|v| {
                         compile(
-                            cwd,
                             &stringify_variable_value(v),
                             emakefile_current_path,
                             maybe_replacements,
+                            None
                         )
                     })
                     .collect::<Vec<String>>();
@@ -378,11 +372,9 @@ fn stringify_variable_value(value: &impl serde::Serialize) -> String {
 
 fn get_user_variable(
     user_variable: &String,
-    cwd: &str,
     emakefile_current_path: &str,
 ) -> Result<String, String> {
     let result_target = emake::loader::get_target_on_path(
-        cwd,
         user_variable,
         emakefile_current_path,
         Some(TargetType::Variables),
@@ -561,9 +553,9 @@ fn execute_helper(
     args: &Vec<(TOKEN_TAG, String)>,
     tokens: &Vec<(TOKEN_TAG, String)>,
     pipe_in: &mut String,
-    cwd: &str,
     emakefile_current_path: &str,
     maybe_replacements: Option<&HashMap<String, String>>,
+    cwd: Option<&str>,
 ) {
     // Call the helper
     if helper.1 == String::from("glob") {
@@ -574,7 +566,7 @@ fn execute_helper(
                 tokens
             );
         }
-        call_glob(pipe_in, cwd, maybe_replacements);
+        call_glob(pipe_in, maybe_replacements, cwd);
     } else if helper.1 == String::from("array_to_shell") {
         if args.len() > 0 {
             log::panic!(
@@ -593,7 +585,7 @@ fn execute_helper(
             );
         }
 
-        call_values_of(pipe_in, cwd, emakefile_current_path, maybe_replacements);
+        call_values_of(pipe_in, emakefile_current_path, maybe_replacements);
     } else if helper.1 == String::from("keys_of") {
         if args.len() > 0 {
             log::panic!(
@@ -603,7 +595,7 @@ fn execute_helper(
             );
         }
 
-        call_keys_of(pipe_in, cwd, emakefile_current_path, maybe_replacements);
+        call_keys_of(pipe_in, emakefile_current_path, maybe_replacements);
     } else if helper.1 == String::from("prepend_text") {
         if args.len() != 1 {
             log::panic!(
@@ -651,9 +643,9 @@ fn execute_helper(
 
 fn template_executor(
     tokens: &Vec<(TOKEN_TAG, String)>,
-    cwd: &str,
     emakefile_current_path: &str,
     maybe_replacements: Option<&HashMap<String, String>>,
+    cwd: Option<&str>,
 ) -> String {
     let mut context = (TOKEN_TAG::UNKNOWN, String::from(""));
     let mut args = Vec::<(TOKEN_TAG, String)>::new();
@@ -667,9 +659,9 @@ fn template_executor(
                     &args,
                     tokens,
                     &mut pipe_in,
-                    &cwd,
                     emakefile_current_path,
                     maybe_replacements,
+                    cwd,
                 );
                 context = (TOKEN_TAG::UNKNOWN, String::from(""));
                 args.clear();
@@ -701,7 +693,6 @@ fn template_executor(
 
                             result = resolve_variable(
                                 &var_caps[1].trim().to_string(),
-                                cwd,
                                 emakefile_current_path,
                                 maybe_replacements
                             );
@@ -724,7 +715,7 @@ fn template_executor(
                 let current_str = &current_token.1;
 
                 let target_path =
-                    get_target_on_path(cwd, current_str, &emakefile_current_path, None);
+                    get_target_on_path(current_str, &emakefile_current_path, None);
                 match target_path.unwrap_or_else(|error| {
                     log::panic!("Can't resolve path {}: {}", current_str, error);
                 }) {
@@ -732,13 +723,12 @@ fn template_executor(
                         log::panic!("You can not use target inside template language as path. Only variables and secrets are accepted");
                     }
                     Target::SecretEntry(_) => {
-                        pipe_in = resolve_secret(cwd, emakefile_current_path, current_str)
+                        pipe_in = resolve_secret(emakefile_current_path, current_str)
                             .unwrap_or(current_str.clone());
                     }
                     Target::VariableEntry(_) => {
                         pipe_in = resolve_variable(
                             &current_str.trim().to_string(),
-                            cwd,
                             emakefile_current_path,
                             maybe_replacements
                         );
@@ -759,7 +749,6 @@ fn template_executor(
 
                             result = resolve_variable(
                                 &var_caps[1].trim().to_string(),
-                                cwd,
                                 emakefile_current_path,
                                 maybe_replacements
                             );
@@ -797,9 +786,9 @@ fn template_executor(
             &args,
             tokens,
             &mut pipe_in,
-            cwd,
             emakefile_current_path,
             maybe_replacements,
+            cwd
         );
     }
 
@@ -807,17 +796,17 @@ fn template_executor(
 }
 
 pub fn compile(
-    cwd: &str,
     content: &str,
     emakefile_current_path: &str,
     maybe_replacements: Option<&HashMap<String, String>>,
+    cwd: Option<&str>,
 ) -> String {
     let re = Regex::new(r"\{\{(.*?)\}\}").unwrap();
     let result = re.replace_all(content, |caps: &regex::Captures| {
         let element = String::from(caps[1].trim());
         let tokens = tokenizer(&element);
         log::debug!("TOKENS {:?}", tokens);
-        template_executor(&tokens, cwd, emakefile_current_path, maybe_replacements)
+        template_executor(&tokens, emakefile_current_path, maybe_replacements, cwd)
     });
 
     log::debug!("Template compilation result from {} to {}", content, result);

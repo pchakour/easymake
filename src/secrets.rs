@@ -7,7 +7,6 @@ pub type PlainSecret = String;
 pub trait Secrets: Send + Sync {
     fn extract<'a>(
         &'a self,
-        cwd: &'a str,
         unextracted_secrets: &'a HashMap<String, serde_yml::Value>,
     ) -> PlainSecret;
     fn clone_box(&self) -> Box<dyn Secrets + Send + Sync>;

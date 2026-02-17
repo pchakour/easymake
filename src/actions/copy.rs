@@ -104,7 +104,6 @@ impl Action for Copy {
 
     fn run<'a>(
         &'a self,
-        _cwd: &'a str,
         _target_id: &'a str,
         step_id: &'a str,
         _emakefile_cwd: &'a str,

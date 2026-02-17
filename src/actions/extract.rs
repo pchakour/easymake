@@ -180,7 +180,6 @@ impl Action for Extract {
 
     fn run<'a>(
         &'a self,
-        _cwd: &'a str,
         target_id: &'a str,
         step_id: &'a str,
         _emakefile_cwd: &'a str,

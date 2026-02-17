@@ -212,7 +212,6 @@ pub async fn write_cache_action_checksum(action_id: &str, checksum: &str) {
 }
 
 pub fn has_file_changed(file: &str, action_id: &str, ignore_not_exists: &bool) -> bool {
-    let cwd = get_cwd();
     let mut filename = String::from(file);
 
     if is_url(file) {
@@ -221,7 +220,7 @@ pub fn has_file_changed(file: &str, action_id: &str, ignore_not_exists: &bool) -
 
     let mut file_changed = !ignore_not_exists;
     let file_absolute_path = String::from(
-        get_absolute_file_path(&cwd, &filename)
+        get_absolute_file_path(&filename)
             .to_str()
             .unwrap_or(""),
     );

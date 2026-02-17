@@ -3,9 +3,7 @@ use std::{
 };
 
 use crate::{
-    cache,
-    console::{log, progress_bar::{self, set_loader_message}},
-    graph::{self, generator::get_absolute_target_path},
+    cache, console::{log, progress_bar::{self, set_loader_message}}, get_cwd, graph::{self, generator::get_absolute_target_path}
 };
 use crossbeam_channel::{bounded, Receiver};
 
@@ -20,7 +18,7 @@ fn ctrl_channel() -> Result<Receiver<()>, ctrlc::Error> {
     Ok(receiver)
 }
 
-pub async fn run(target: &String, cwd: &Path, _find_root: bool) {
+pub async fn run(target: &String, _find_root: bool) {
     let ctrl_c_events = ctrl_channel().unwrap();
 
     // Spawn ctrl+c handler in background thread
@@ -31,7 +29,7 @@ pub async fn run(target: &String, cwd: &Path, _find_root: bool) {
     });
 
     // run the main async task
-    main_task(target, cwd).await;
+    main_task(target).await;
 
     exit(0);
 }
@@ -60,17 +58,15 @@ pub fn update_progress(increment_running: bool, increment_done: bool) {
     set_loader_message(&format!("Building [{} | {}]", running_step_text, done_step_text));
 }
 
-async fn main_task(target: &String, cwd: &Path) {
-    let mut build_file = PathBuf::from(cwd);
+async fn main_task(target: &String) {
+    let mut build_file = PathBuf::from(get_cwd());
     build_file.push("Emakefile");
 
     let target_path = get_absolute_target_path(
         target,
-        &build_file.to_str().unwrap().to_string(),
-        &cwd.to_string_lossy().to_string(),
-    );
+        &build_file.to_str().unwrap().to_string());
 
-    graph::runner::run_target(target_path, cwd.to_string_lossy().to_string()).await;
+    graph::runner::run_target(target_path).await;
 }
 
 pub fn exit(code: i32) {

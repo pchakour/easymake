@@ -76,15 +76,13 @@ pub struct GitClone;
 
 fn compile_secret(
     secret: &str,
-    cwd: &str,
     emakefile_cwd: &str,
     maybe_replacements: Option<&HashMap<String, String>>,
 ) -> Result<String, Box<dyn std::error::Error>> {
     // TODO externalize this code to be reused anywhere and when donwloading files
     let mut compiled_secret =
-        emake::compiler::compile(cwd, secret, &emakefile_cwd.to_string(), maybe_replacements);
+        emake::compiler::compile(secret, &emakefile_cwd.to_string(), maybe_replacements, None);
     let result_secret = emake::loader::get_target_on_path(
-        cwd,
         &compiled_secret,
         emakefile_cwd,
         Some(TargetType::Secrets),
@@ -100,7 +98,7 @@ fn compile_secret(
                     String::from(secret_config.get("type").unwrap().as_str().unwrap());
                 let maybe_secret_plugin = CREDENTIALS_STORE.get(&secret_type);
                 if let Some(secret_plugin) = maybe_secret_plugin {
-                    compiled_secret = secret_plugin.extract(cwd, &secret_config);
+                    compiled_secret = secret_plugin.extract(&secret_config);
                 } else {
                     return Err(
                         format!("The credential type {} does not exist", secret_type).into(),
@@ -164,6 +162,28 @@ fn clone_and_checkout(
     Ok(())
 }
 
+fn resolve_remote_ref(repo_url: &String, name: &str) -> Result<Option<String>, git2::Error> {
+    let mut callbacks = RemoteCallbacks::new();
+    callbacks.credentials(|_url, user, _| Cred::ssh_key_from_agent(user.unwrap()));
+
+    let repo = Repository::init_bare("git-probe")?;
+    let mut remote = repo.remote("origin", repo_url)?;
+    remote.connect(git2::Direction::Fetch)?;
+
+    let refs = remote.list()?;
+
+    return Ok(Some(format!("tags/{}", name)));
+    // for r in refs {
+    //     if r.name() == format!("refs/heads/{}", name)
+    //         || r.name() == format!("refs/tags/{}", name)
+    //     {
+    //         return Ok(Some(r.name().to_string()));
+    //     }
+    // }
+
+    // Ok(None)
+}
+
 impl Action for GitClone {
     fn insert_in_files<'a>(
         &'a self,
@@ -198,7 +218,6 @@ impl Action for GitClone {
 
     fn run<'a>(
         &'a self,
-        cwd: &'a str,
         _target_id: &'a str,
         step_id: &'a str,
         emakefile_cwd: &'a str,
@@ -218,6 +237,37 @@ impl Action for GitClone {
             };
 
             for (index, repository) in in_files.iter().enumerate() {
+                let mut commit = None;
+                if git_action.commit.is_some() {
+                    commit = Some(emake::compiler::compile(
+                        git_action.commit.as_ref().unwrap(),
+                        &emakefile_cwd.to_string(),
+                        maybe_replacements,
+                        None,
+                    ));
+
+                    if commit.is_some() {
+                        let parsed_compiled_commit: Result<Vec<String>, _> =
+                            serde_json::from_str(&commit.clone().unwrap());
+
+                        match parsed_compiled_commit {
+                            Ok(compiled) => commit = Some(compiled[index].clone()),
+                            Err(_) => (),
+                        }
+                    }
+                }
+
+                let default_branch = commit.unwrap_or(String::from("main"));
+                let t = resolve_remote_ref(&repository, &default_branch);
+                log::action_info!(step_id, ID, "AAA {:?}", t);
+                // let mut branches_candidates = Vec::from([
+                //     format!("refs/tags/{}", default_branch),
+                //     format!("refs/heads/{}", default_branch),
+                //     format!("origin/{}", default_branch),
+                //     default_branch,
+                // ]);
+
+                // loop {
                 let mut destination = PathBuf::from(&out_files[0]);
 
                 if git_action.clone_inside.unwrap_or(false) {
@@ -267,14 +317,14 @@ impl Action for GitClone {
                         let username_secret =
                             git_action.username.as_ref().unwrap_or(&default_username);
                         let username =
-                            compile_secret(username_secret, cwd, emakefile_cwd, maybe_replacements)
+                            compile_secret(username_secret, emakefile_cwd, maybe_replacements)
                                 .map_err(|e| {
                                     git2::Error::from_str(&format!("username error: {}", e))
                                 })?;
 
                         let password_secret = git_action.password.as_ref().unwrap();
                         let password =
-                            compile_secret(password_secret, cwd, emakefile_cwd, maybe_replacements)
+                            compile_secret(password_secret, emakefile_cwd, maybe_replacements)
                                 .map_err(|e| {
                                     git2::Error::from_str(&format!("password error: {}", e))
                                 })?;
@@ -296,44 +346,34 @@ impl Action for GitClone {
                     });
                 }
 
+                let mut builder = git2::build::RepoBuilder::new();
+
                 let mut fetch_opts = FetchOptions::new();
-                // fetch_opts.depth(1);
+                fetch_opts.depth(1);
                 fetch_opts.remote_callbacks(callbacks);
-
-                let mut commit = None;
-                if git_action.commit.is_some() {
-                    commit = Some(emake::compiler::compile(
-                        cwd,
-                        git_action.commit.as_ref().unwrap(),
-                        &emakefile_cwd.to_string(),
-                        maybe_replacements,
-                    ));
-
-                    if commit.is_some() {
-                        let parsed_compiled_commit: Result<Vec<String>, _> =
-                            serde_json::from_str(&commit.clone().unwrap());
-
-                        match parsed_compiled_commit {
-                            Ok(compiled) => commit = Some(compiled[index].clone()),
-                            Err(_) => (),
-                        }
-                    }
-
-                }
-
-                match clone_and_checkout(
-                    &repository,
-                    &destination,
-                    fetch_opts,
-                    commit.unwrap_or(String::from("main")),
-                ) {
-                    Ok(_) => {},
+                let branch = t.unwrap_or(Some(default_branch)).unwrap();
+                builder.fetch_options(fetch_opts).branch(&branch);
+                log::action_info!(step_id, ID, "Clone branch {}", branch);
+                match builder.clone(&repository, &destination) {
+                    Ok(_) => {}
                     Err(e) => {
                         return Err(format!("Error when cloning repository: {}", e).into());
-                    },
+                    }
                 }
-            }
 
+                // match clone_and_checkout(
+                //     &repository,
+                //     &destination,
+                //     fetch_opts,
+                //     commit.unwrap_or(String::from("main")),
+                // ) {
+                //     Ok(_) => {},
+                //     Err(e) => {
+                //         return Err(format!("Error when cloning repository: {}", e).into());
+                //     },
+                // }
+                // }
+            }
             Ok(())
         })
     }

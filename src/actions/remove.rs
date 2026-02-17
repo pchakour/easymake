@@ -69,7 +69,6 @@ impl Action for Remove {
 
     fn run<'a>(
         &'a self,
-        _cwd: &'a str,
         _target_id: &'a str,
         _step_id: &'a str,
         _emakefile_cwd: &'a str,

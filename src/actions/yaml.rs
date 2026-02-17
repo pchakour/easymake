@@ -57,7 +57,6 @@ pub struct Yaml;
 fn merge_yaml(
     base: &mut Value,
     update: &Value,
-    cwd: &str,
     emakefile_current_path: &str,
     maybe_replacements: Option<&HashMap<String, String>>,
 ) {
@@ -75,7 +74,6 @@ fn merge_yaml(
                 merge_yaml(
                     base_map.entry(k.clone()).or_insert(Value::Null),
                     v,
-                    cwd,
                     emakefile_current_path,
                     maybe_replacements,
                 );
@@ -86,10 +84,10 @@ fn merge_yaml(
         (base_value, update_value) => match update_value {
             serde_yml::Value::String(update_value_string) => {
                 *base_value = serde_yml::from_str(&emake::compiler::compile(
-                    cwd,
                     &update_value_string,
                     emakefile_current_path,
                     maybe_replacements,
+                    None,
                 ))
                 .unwrap();
             }
@@ -137,7 +135,6 @@ impl Action for Yaml {
 
     fn run<'a>(
         &'a self,
-        cwd: &'a str,
         _target_id: &'a str,
         step_id: &'a str,
         emakefile_cwd: &'a str,
@@ -166,7 +163,6 @@ impl Action for Yaml {
                         merge_yaml(
                             &mut from_yaml,
                             &yaml.set,
-                            cwd,
                             emakefile_cwd,
                             maybe_replacements,
                         );
@@ -181,7 +177,7 @@ impl Action for Yaml {
                         let to = &out_files[0];
                         let mut to_yaml =
                             serde_yml::from_str::<serde_yml::Value>("").unwrap();
-                        merge_yaml(&mut to_yaml, &yaml.set, cwd, emakefile_cwd, maybe_replacements);
+                        merge_yaml(&mut to_yaml, &yaml.set, emakefile_cwd, maybe_replacements);
                         fs::write(to, serde_yml::to_string(&to_yaml).unwrap()).unwrap();
                     }
                 }
