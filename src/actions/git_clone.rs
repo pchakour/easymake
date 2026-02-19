@@ -13,9 +13,7 @@ use std::{
 };
 
 use crate::{
-    console::log,
-    emake::{self, loader::TargetType, InFile, PluginAction},
-    CREDENTIALS_STORE,
+    CREDENTIALS_STORE, cache::get_working_dir_path, console::log, emake::{self, InFile, PluginAction, loader::TargetType}
 };
 
 use super::Action;
@@ -70,6 +68,9 @@ pub struct GitCloneAction {
 
     #[action_prop(description = "Clone inside the specify directory", required = false)]
     pub clone_inside: Option<bool>,
+
+    #[action_prop(description = "Overwrite if the directory already exists", required = false)]
+    pub overwrite: Option<bool>,
 }
 
 pub struct GitClone;
@@ -116,35 +117,13 @@ fn clone_and_checkout(
     url: &str,
     path: &PathBuf,
     fetch_opts: FetchOptions,
-    reference: String, // branch | tag | sha
+    branch: String,
 ) -> Result<(), Error> {
     let mut builder = RepoBuilder::new();
     builder.fetch_options(fetch_opts);
     let repo = builder.clone(url, path)?;
 
-    // Resolution candidates (order matters)
-    let candidates = [
-        &reference,
-        &format!("refs/heads/{}", reference),
-        &format!("origin/{}", reference),
-        &format!("refs/tags/{}", reference),
-    ];
-
-    let mut target = None;
-
-    for spec in &candidates {
-        if let Ok(obj) = repo.revparse_single(spec) {
-            target = Some(obj);
-            break;
-        }
-    }
-
-    // Fallback: let libgit2 try harder (commit SHA, HEAD~1, etc.)
-    let target = match target {
-        Some(obj) => obj,
-        None => repo.revparse_single(&reference)?,
-    };
-
+    let target = repo.revparse_single(&branch).unwrap();
     // Checkout
     repo.checkout_tree(&target, Some(CheckoutBuilder::new().force()))?;
 
@@ -166,22 +145,27 @@ fn resolve_remote_ref(repo_url: &String, name: &str) -> Result<Option<String>, g
     let mut callbacks = RemoteCallbacks::new();
     callbacks.credentials(|_url, user, _| Cred::ssh_key_from_agent(user.unwrap()));
 
-    let repo = Repository::init_bare("git-probe")?;
+    let workspace = get_working_dir_path();
+    let tmp_git_clone = PathBuf::from(&workspace).join(repo_url);
+    let repo = Repository::init_bare(&tmp_git_clone)?;
     let mut remote = repo.remote("origin", repo_url)?;
     remote.connect(git2::Direction::Fetch)?;
 
     let refs = remote.list()?;
+    let mut branch = None;
 
-    return Ok(Some(format!("tags/{}", name)));
-    // for r in refs {
-    //     if r.name() == format!("refs/heads/{}", name)
-    //         || r.name() == format!("refs/tags/{}", name)
-    //     {
-    //         return Ok(Some(r.name().to_string()));
-    //     }
-    // }
+    for r in refs {
+        if r.name() == format!("refs/heads/{}", name)
+            || r.name() == format!("refs/tags/{}", name)
+        {
+            branch = Some(r.name().to_string());
+            break;
+        }
+    }
 
-    // Ok(None)
+    let _ = fs::remove_dir_all(tmp_git_clone);
+
+    Ok(branch)
 }
 
 impl Action for GitClone {
@@ -208,7 +192,7 @@ impl Action for GitClone {
         Box::pin(async move {
             match action {
                 PluginAction::GitClone { git_clone } => {
-                    let mut destination = PathBuf::from(git_clone.destination.clone());
+                    let destination = PathBuf::from(git_clone.destination.clone());
                     out_files.push(destination.to_string_lossy().to_string());
                 }
                 _ => {}
@@ -258,16 +242,7 @@ impl Action for GitClone {
                 }
 
                 let default_branch = commit.unwrap_or(String::from("main"));
-                let t = resolve_remote_ref(&repository, &default_branch);
-                log::action_info!(step_id, ID, "AAA {:?}", t);
-                // let mut branches_candidates = Vec::from([
-                //     format!("refs/tags/{}", default_branch),
-                //     format!("refs/heads/{}", default_branch),
-                //     format!("origin/{}", default_branch),
-                //     default_branch,
-                // ]);
-
-                // loop {
+                let branch_result = resolve_remote_ref(&repository, &default_branch);
                 let mut destination = PathBuf::from(&out_files[0]);
 
                 if git_action.clone_inside.unwrap_or(false) {
@@ -278,6 +253,12 @@ impl Action for GitClone {
                     let git_paths = repository.split("/");
                     let repository_name = git_paths.last().unwrap().strip_suffix(".git").unwrap();
                     destination = destination.join(repository_name);
+                } else if destination.exists() {
+                    if git_action.overwrite.unwrap_or(false) {
+                        fs::remove_dir_all(&destination).unwrap();
+                    } else {
+                        return Err(format!("Error when cloning repository: The directory {} already exists!", destination.to_string_lossy().to_string()).into());
+                    }
                 }
 
                 log::action_info!(step_id, ID, "Cloning repository {}", repository);
@@ -346,33 +327,18 @@ impl Action for GitClone {
                     });
                 }
 
-                let mut builder = git2::build::RepoBuilder::new();
-
                 let mut fetch_opts = FetchOptions::new();
                 fetch_opts.depth(1);
                 fetch_opts.remote_callbacks(callbacks);
-                let branch = t.unwrap_or(Some(default_branch)).unwrap();
-                builder.fetch_options(fetch_opts).branch(&branch);
+                let branch = branch_result.unwrap_or(Some(default_branch)).unwrap();
                 log::action_info!(step_id, ID, "Clone branch {}", branch);
-                match builder.clone(&repository, &destination) {
+
+                match clone_and_checkout(repository, &destination, fetch_opts, branch) {
                     Ok(_) => {}
                     Err(e) => {
                         return Err(format!("Error when cloning repository: {}", e).into());
                     }
                 }
-
-                // match clone_and_checkout(
-                //     &repository,
-                //     &destination,
-                //     fetch_opts,
-                //     commit.unwrap_or(String::from("main")),
-                // ) {
-                //     Ok(_) => {},
-                //     Err(e) => {
-                //         return Err(format!("Error when cloning repository: {}", e).into());
-                //     },
-                // }
-                // }
             }
             Ok(())
         })
