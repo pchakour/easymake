@@ -80,11 +80,21 @@ impl Action for Remove {
         _maybe_replacements: Option<&'a HashMap<String, String>>,
     ) -> Pin<Box<dyn Future<Output = Result<(), Box<dyn std::error::Error>>> + Send + 'a>> {
         Box::pin(async move {
-            let paths = in_files;
+            let paths = in_files.clone();
+        
+            let spawn_result: Result<(), String> = tokio::task::spawn_blocking(move || {
+                fs_extra::remove_items(&paths).map_err(|error| {
+                    format!("Error when deleting files {}", error)
+                })
+            }).await.unwrap();
 
-            fs_extra::remove_items(&paths).map_err(|error| {
-                format!("Error when deleting files {}", error).into()
-            })
+            if spawn_result.is_err() {
+                let error_message = spawn_result.err().unwrap().to_string();
+                let error: Result<(), Box<dyn std::error::Error>> = Err(error_message.into());
+                return error;
+            }
+
+            Ok(())
         })
     }
     fn clone_box(&self) -> Box<dyn Action + Send + Sync> {

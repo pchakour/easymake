@@ -91,7 +91,7 @@ fn archive(
     from_paths: &Vec<String>,
     archive_path: &str,
     exclude_paths: &Vec<String>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let path = Path::new(archive_path);
     let extension = path
         .extension()
@@ -101,7 +101,7 @@ fn archive(
 
     log::debug!("[{}] {}", step_id, "Starting files compression");
     // Build globset once (works with empty exclude_paths)
-    let globset = build_exclude_globset(exclude_paths)?;
+    let globset = build_exclude_globset(exclude_paths).unwrap();
 
     if extension == "zip" {
         let file = std::fs::File::create(path)?;
@@ -132,7 +132,7 @@ fn archive(
                 std::io::copy(&mut f, &mut zip)?;
             } else if from_path.is_dir() {
                 // Use the helper to get entries already filtered by excludes
-                let entries: Vec<_> = walk_with_excludes(from_path, exclude_paths)?;
+                let entries: Vec<_> = walk_with_excludes(from_path, exclude_paths).unwrap();
                 let total = entries.len();
                 let mut current = 0;
 
@@ -189,7 +189,7 @@ fn archive(
                 continue;
             }
 
-            let entries: Vec<_> = walk_with_excludes(from_path, exclude_paths)?;
+            let entries: Vec<_> = walk_with_excludes(from_path, exclude_paths).unwrap();
             let total = entries.len();
             let mut current = 0;
             for entry in entries {
@@ -238,7 +238,7 @@ fn archive(
                 continue;
             }
 
-            let entries: Vec<_> = walk_with_excludes(from_path, exclude_paths)?;
+            let entries: Vec<_> = walk_with_excludes(from_path, exclude_paths).unwrap();
             let total = entries.len();
             let mut current = 0;
 
@@ -291,7 +291,7 @@ fn archive(
                 continue;
             }
 
-            let entries: Vec<_> = walk_with_excludes(from_path, exclude_paths)?;
+            let entries: Vec<_> = walk_with_excludes(from_path, exclude_paths).unwrap();
             let total = entries.len();
             let mut current = 0;
 
@@ -393,7 +393,23 @@ impl Action for Archive {
                 exclude_paths = archive.exclude.clone().unwrap_or_default();
             }
 
-            archive(target_id, step_id, in_files, to, &exclude_paths)
+            let target_id_clone = target_id.to_string();
+            let step_id_clone = step_id.to_string();
+            let in_files_clone = in_files.clone();
+            let to_clone = to.clone();
+            let exclude_paths_clone = exclude_paths.clone();
+
+            let spawn_result = tokio::task::spawn_blocking(move || {
+                archive(&target_id_clone, &step_id_clone, &in_files_clone, &to_clone, &exclude_paths_clone)
+            }).await.unwrap();
+
+            if spawn_result.is_err() {
+                let error_message = spawn_result.err().unwrap().to_string();
+                let error: Result<(), Box<dyn std::error::Error>> = Err(error_message.into());
+                return error;
+            }
+
+            Ok(())
         })
     }
 

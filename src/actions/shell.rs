@@ -9,7 +9,8 @@ use std::{
 
 use crate::{
     console::log,
-    emake::{self, InFile, PluginAction}, get_cwd,
+    emake::{self, InFile, PluginAction},
+    get_cwd,
 };
 use config_macros::ActionDoc;
 
@@ -138,7 +139,7 @@ impl Action for Shell {
                     &command,
                     &emakefile_cwd.to_string(),
                     Some(&replacements),
-                    None
+                    None,
                 );
 
                 let cwd_as_string = get_cwd().to_string_lossy().to_string();
@@ -155,54 +156,74 @@ impl Action for Shell {
                     ("sh", "-c")
                 };
 
-                log::info!("Current workingdirectory to execute the command is {}", current_working_directory_for_command);
-                let mut child = Command::new(shell)
-                    .current_dir(current_working_directory_for_command)
-                    .arg(arg)
-                    .arg(&command)
-                    .stdout(Stdio::piped())
-                    .stderr(Stdio::piped())
-                    .spawn()
-                    .expect("Failed to execute command");
+                log::info!(
+                    "Current workingdirectory to execute the command is {}",
+                    current_working_directory_for_command
+                );
 
-                let stdout = child.stdout.take().unwrap();
-                let stderr = child.stderr.take().unwrap();
+                let current_working_directory_for_command_clone = current_working_directory_for_command.clone();
+                let arg_clone = String::from(arg);
+                let command_clone = command.clone();
+                let step_id_clone = String::from(step_id);
 
-                let stdout_reader = BufReader::new(stdout);
-                let stderr_reader = BufReader::new(stderr);
-                let cmd_stdout = command.clone();
+                let spawn_result: Result<(), String>= tokio::task::spawn_blocking(move || {
+                    let mut child = Command::new(shell)
+                        .current_dir(current_working_directory_for_command_clone)
+                        .arg(arg_clone)
+                        .arg(&command_clone)
+                        .stdout(Stdio::piped())
+                        .stderr(Stdio::piped())
+                        .spawn()
+                        .expect("Failed to execute command");
 
-                log::action_info!(step_id, self::ID, "[command] {}", cmd_stdout);
-                let stdout_step_id_clone = String::from(step_id);
+                    let stdout = child.stdout.take().unwrap();
+                    let stderr = child.stderr.take().unwrap();
 
-                let _ = std::thread::spawn(move || {
-                    for line in stdout_reader.lines() {
-                        if let Ok(text) = line {
-                            let output = format!("[stdout] {}", text);
-                            log::action_info!(stdout_step_id_clone, ID, "{}", output);
+                    let stdout_reader = BufReader::new(stdout);
+                    let stderr_reader = BufReader::new(stderr);
+                    let cmd_stdout = command_clone.clone();
+
+                    log::action_info!(step_id_clone, self::ID, "[command] {}", cmd_stdout);
+
+                    let stderr_step_id_clone = String::from(&step_id_clone);
+                    let _ = std::thread::spawn(move || {
+                        for line in stdout_reader.lines() {
+                            if let Ok(text) = line {
+                                let output = format!("[stdout] {}", text);
+                                log::action_info!(stderr_step_id_clone, ID, "{}", output);
+                            }
                         }
-                    }
-                });
+                    });
 
-                let stderr_step_id_clone = String::from(step_id);
-                let _ = std::thread::spawn(move || {
-                    for line in stderr_reader.lines() {
-                        if let Ok(text) = line {
-                            let output = format!("[stderr] {}", text);
-                            log::action_info!(stderr_step_id_clone, ID, "{}", output);
+                    let stderr_step_id_clone = String::from(&step_id_clone);
+                    let _ = std::thread::spawn(move || {
+                        for line in stderr_reader.lines() {
+                            if let Ok(text) = line {
+                                let output = format!("[stderr] {}", text);
+                                log::action_info!(stderr_step_id_clone, ID, "{}", output);
+                            }
                         }
+                    });
+
+                    let status = child.wait().expect("Failed to wait on child");
+
+                    if !status.success() {
+                        return Err(format!(
+                            "Command `{}` failed with exit code {}.",
+                            command_clone,
+                            status.code().unwrap_or(-1)
+                        ));
                     }
-                });
 
-                let status = child.wait().expect("Failed to wait on child");
+                    Ok(())
+                })
+                .await
+                .unwrap();
 
-                if !status.success() {
-                    return Err(format!(
-                        "Command `{}` failed with exit code {}.",
-                        command,
-                        status.code().unwrap_or(-1)
-                    )
-                    .into());
+                if spawn_result.is_err() {
+                    let error_message = spawn_result.err().unwrap().to_string();
+                    let error: Result<(), Box<dyn std::error::Error>> = Err(error_message.into());
+                    return error;
                 }
             }
 

@@ -136,7 +136,7 @@ impl Action for Yaml {
     fn run<'a>(
         &'a self,
         _target_id: &'a str,
-        step_id: &'a str,
+        _step_id: &'a str,
         emakefile_cwd: &'a str,
         _silent: bool,
         action: &'a PluginAction,

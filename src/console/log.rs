@@ -46,8 +46,6 @@ pub fn get_log_level() -> LogLevel {
     LogLevel::from_usize(LOG_LEVEL.load(Ordering::Relaxed))
 }
 
-pub const INDENT: &str = "   ";
-
 pub enum StepStatus {
     Finished,
     Running,
@@ -157,7 +155,7 @@ macro_rules! panic {
         } else {
             log::text!("\x1b[1;91m{}\x1b[0m", format!($($arg)*));
         }
-        crate::commands::build::exit(1);
+        crate::commands::build::exit(1, None);
         std::process::exit(1);
     };
 }

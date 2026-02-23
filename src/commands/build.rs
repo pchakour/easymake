@@ -1,9 +1,9 @@
 use std::{
-    path::{Path, PathBuf}, sync::atomic::{AtomicUsize, Ordering}, thread
+    path::PathBuf, sync::atomic::{AtomicUsize, Ordering}, thread, time::Instant
 };
 
 use crate::{
-    cache, console::{log, progress_bar::{self, set_loader_message}}, get_cwd, graph::{self, generator::get_absolute_target_path}
+    cache, console::{log, progress_bar::{self, set_loader_message}}, get_cwd, graph::{self, generator::get_absolute_target_path}, utils::format_elapsed
 };
 use crossbeam_channel::{bounded, Receiver};
 
@@ -25,13 +25,14 @@ pub async fn run(target: &String, _find_root: bool) {
     let _ = thread::spawn(move || {
         ctrl_c_events.recv().unwrap();
         log::warning!("Receive CTRL-C signal from user");
-        exit(1);
+        exit(1, None);
     });
 
     // run the main async task
+    let start = Instant::now();
     main_task(target).await;
 
-    exit(0);
+    exit(0, Some(start.elapsed()));
 }
 
 pub fn update_progress(increment_running: bool, increment_done: bool) {
@@ -69,9 +70,14 @@ async fn main_task(target: &String) {
     graph::runner::run_target(target_path).await;
 }
 
-pub fn exit(code: i32) {
+pub fn exit(code: i32, duration: Option<std::time::Duration>) {
     if code == 0 {
-        log::success!("Build successfully done");
+        if duration.is_some() {
+            let elapsed = format_elapsed(duration.unwrap());
+            log::success!("Build successfully done in {}", elapsed);
+        } else {
+            log::success!("Build successfully done");
+        }
     }
 
     cache::write_cache(&(code != 0));

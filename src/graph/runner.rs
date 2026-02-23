@@ -6,7 +6,7 @@ use crate::console::log::{self, StepStatus};
 use crate::emake::loader::{extract_info_from_path, Target, TargetType};
 use crate::emake::{Credentials, Step};
 use crate::graph::generator::{get_absolute_target_path, to_emakefile_path};
-use crate::utils::get_absolute_file_path;
+use crate::utils::{format_elapsed, get_absolute_file_path};
 use crate::{
     ACTIONS_STORE, CACHE_IN_FILE_TO_UPDATE, CACHE_OUT_FILE_TO_UPDATE, CREDENTIALS_STORE, cache, emake, get_cwd, get_mutex_for_id, graph, secrets, utils
 };
@@ -154,6 +154,7 @@ async fn download_file(
     let mut dest = BufWriter::new(File::create(output_path)?);
     let mut downloaded: u64 = 0;
     let mut stream = response.bytes_stream();
+    let mut last_log_time = std::time::Instant::now();
 
     while let Some(chunk_result) = stream.next().await {
         let chunk = chunk_result?;
@@ -164,7 +165,11 @@ async fn download_file(
             percent = ((downloaded * 100) / total_size) as usize
         }
 
-        log::action_debug!(step_id, action_id, "Percent {}% | {}", percent, description);
+        let now = std::time::Instant::now();
+        if now.duration_since(last_log_time) >= Duration::from_secs(10) {
+            log::action_info!(step_id, action_id, "Percent {}% | {}", percent, description);
+            last_log_time = now;
+        }
     }
 
     log::action_info!(step_id, action_id, "File {} downloaded", url);
@@ -374,12 +379,14 @@ where
         tokio::select! {
             result = &mut task => {
                 let elapsed = start.elapsed();
-                log::step_info!(step_id, StepStatus::Finished, format!("{} after {:?}", step_description, elapsed));
+                let elapsed_formatted = format_elapsed(elapsed);
+                log::step_info!(step_id, StepStatus::Finished, format!("{} after {}", step_description, elapsed_formatted));
                 return result;
             }
             _ = ticker.tick() => {
                 let elapsed = start.elapsed();
-                log::step_info!(step_id, StepStatus::Running, format!("{} still running  ({:?} elapsed)", step_description, elapsed));
+                let elapsed_formatted = format_elapsed(elapsed);
+                log::step_info!(step_id, StepStatus::Running, format!("{} still running  ({} elapsed)", step_description, elapsed_formatted));
             }
         }
     }
@@ -486,7 +493,7 @@ async fn run_step<'a>(
                 Some(&default_replacements),
             )
             ,
-            Duration::from_secs(5),
+            Duration::from_secs(10),
             step_id,
             &step_description,
         )

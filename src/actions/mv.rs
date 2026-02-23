@@ -102,7 +102,7 @@ impl Action for Move {
         step_id: &'a str,
         _emakefile_cwd: &'a str,
         _silent: bool,
-        action: &'a PluginAction,
+        _action: &'a PluginAction,
         in_files: &'a Vec<String>,
         out_files: &'a Vec<String>,
         _working_dir: &'a String,

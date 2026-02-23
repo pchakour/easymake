@@ -101,7 +101,7 @@ fn extract(
     step_id: &str,
     archive_path: &str,
     output_dir: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let path = Path::new(archive_path);
     let extension = path.extension().and_then(|s| s.to_str()).unwrap_or("");
     let file = std::fs::File::open(path)?;
@@ -198,7 +198,22 @@ impl Action for Extract {
                 fs::create_dir_all(to).unwrap();
             }
 
-            extract(target_id, step_id, from, to)
+            let from_clone = from.clone();
+            let to_clone = to.clone();
+            let target_id_clone = target_id.to_string();
+            let step_id_clone = step_id.to_string();
+
+            let spawn_result = tokio::task::spawn_blocking(move || {
+                extract(&target_id_clone, &step_id_clone, &from_clone, &to_clone)
+            }).await.unwrap();
+
+            if spawn_result.is_err() {
+                let error_message = spawn_result.err().unwrap().to_string();
+                let error: Result<(), Box<dyn std::error::Error>> = Err(error_message.into());
+                return error;
+            }
+
+            Ok(())
         })
     }
     fn clone_box(&self) -> Box<dyn Action + Send + Sync> {

@@ -3,7 +3,7 @@ use std::{
     collections::HashMap,
     io::Read,
     path::Path,
-    process::{Command, Stdio},
+    process::{Command, Stdio}, time::Duration,
 };
 
 pub fn run_command(
@@ -90,4 +90,24 @@ pub fn get_absolute_file_path(file: &str) -> std::path::PathBuf {
         path = get_cwd().join(file);
     }
     path
+}
+
+pub fn format_elapsed(duration: std::time::Duration) -> String {
+    let total_micros = duration.as_micros();
+    let total_seconds = total_micros / 1_000_000;
+    let hours = total_seconds / 3600;
+    let minutes = (total_seconds % 3600) / 60;
+    let seconds = total_seconds % 60;
+    let micros = total_micros % 1_000_000;
+
+    if hours > 0 {
+        format!("{}h {}m {}s", hours, minutes, seconds)
+    } else if minutes > 0 {
+        format!("{}m {}s", minutes, seconds)
+    } else if seconds > 0 {
+        format!("{}s", seconds)
+    } else {
+        // Less than 1 second
+        format!("0.{:06}s", micros)
+    }
 }
