@@ -613,7 +613,7 @@ pub fn run_target<'a>(
         }
 
         if let Some(steps) = &target.steps {
-            let mut steps_tasks: Vec<JoinHandle<Result<(), Box<dyn Error + Send + Sync>>>> =
+            let mut steps_tasks: Vec<JoinHandle<(String, Result<(), Box<dyn Error + Send + Sync>>)>> =
                 Vec::new();
 
             for (step_index, step) in steps.iter().enumerate() {
@@ -639,9 +639,9 @@ pub fn run_target<'a>(
                         )
                         .await;
                         update_progress(false, true);
-                        run_step_result
+                        (step_id_clone, run_step_result)
                     };
-                    let handle: JoinHandle<Result<(), Box<dyn Error + Send + Sync>>> =
+                    let handle: JoinHandle<(String, Result<(), Box<dyn Error + Send + Sync>>)> =
                         tokio::spawn(fut);
                     steps_tasks.push(handle);
                 } else {
@@ -701,10 +701,11 @@ pub fn run_target<'a>(
             let join_results = futures::future::join_all(steps_tasks).await;
             for result in join_results {
                 let run_step_result = result.unwrap();
-                if run_step_result.is_err() {
+                if run_step_result.1.is_err() {
                     log::panic!(
-                        "An error occured when running a step, the status code is not 0. Error: {}",
-                        run_step_result.err().unwrap()
+                        "An error occured when running the step [{}], the status code is not 0. Error: {}",
+                        run_step_result.0,
+                        run_step_result.1.err().unwrap()
                     );
                 }
             }

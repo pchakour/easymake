@@ -1,29 +1,68 @@
 use std::{
-    collections::HashMap, fs, io::{BufRead, BufReader}, path::{Path, PathBuf}, process::{Command, Stdio}, sync::{Arc, Mutex}
+    collections::HashMap, fs, io::{self, BufRead, BufReader}, path::{Path, PathBuf}, process::{Command, Stdio}, sync::{Arc, Mutex}
 };
 
 use crate::{cache, console::log, emake, get_cwd, graph};
 
 const CACHE_DIR: &str = ".emake";
 
-pub async fn run() {
+fn contains_subdirectory<P: AsRef<Path>>(path: P) -> io::Result<bool> {
+    for entry in fs::read_dir(path)? {
+        let entry = entry?;
+        if entry.file_type()?.is_dir() {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+pub async fn run(dry_run: &bool) {
     // let clean_commands = graph::analysor::get_clean_commands(cwd);
     let path = get_cwd().join(CACHE_DIR);
 
     // Getting out_files from cache
     let cache_folder = path.join("cache");
+
+    if *dry_run {
+        log::info!("List of files to delete:");
+    }
+
     for out_file_result in glob::glob(&format!("{}/**/tag_out_file", cache_folder.to_str().unwrap())).unwrap()
     {
         if let Ok(out_file) = out_file_result {
             let dirname = out_file.parent().unwrap();
+            // Exclude outfile that are also in_file for the same target
+            let has_in_file = dirname.join("tag_in_file").exists();
+            if has_in_file {
+                // log::debug!("Ignoring file because it's also an in_file {:?}", out_file);
+                continue;
+            }
+            
+            // Exclude directories that contain also result of other target
+            let has_other_target = contains_subdirectory(&dirname).unwrap();
+            // if has_other_target {
+            //     // log::debug!("Ignoring file because it contains at least an other target {:?}", out_file);
+            //     continue;
+            // }
+
             let file_to_delete = dirname.to_string_lossy().replacen(cache_folder.to_str().unwrap(), "", 1);
-            log::debug!("Cache file to remove {}", file_to_delete);
-            let _ = fs_extra::remove_items(&[&file_to_delete]);
+            
+            if !dry_run {
+                log::debug!("Cache file to remove {}", file_to_delete);
+                let _ = fs_extra::remove_items(&[&file_to_delete]);
+            } else {
+                log::info!("    {}", file_to_delete);
+            }
         }
     }
-
+    
     // Delete emake directory
-    let _ = std::fs::remove_dir_all(path);
+    if !dry_run {
+        log::debug!("Cache file to remove {}", path.to_string_lossy().to_string());
+        let _ = std::fs::remove_dir_all(path);
+    } else {
+        log::info!("    {}", path.to_string_lossy().to_string());
+    }
 
     // let working_dir = cache::get_working_dir_path();
     // let out_dir = cache::get_out_dir_path();

@@ -1,9 +1,8 @@
 use config_macros::ActionDoc;
 use git2::{
-    build::{CheckoutBuilder, RepoBuilder},
-    AutotagOption, Cred, Error, FetchOptions, ObjectType, Progress, RemoteCallbacks, Repository,
+    build::{CheckoutBuilder},
+    AutotagOption, Cred, FetchOptions, Progress, RemoteCallbacks, Repository,
 };
-use keyring::default;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
@@ -14,7 +13,6 @@ use std::{
 };
 
 use crate::{
-    cache::get_working_dir_path,
     console::log,
     emake::{self, loader::TargetType, InFile, PluginAction},
     CREDENTIALS_STORE,
@@ -22,6 +20,16 @@ use crate::{
 
 use super::Action;
 pub static ID: &str = "git_clone";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum IfExistsAction {
+    #[serde(rename = "overwrite")]
+    Overwrite,
+    #[serde(rename = "ignore")]
+    Ignore,
+    #[serde(rename = "error")]
+    Error
+}
 
 #[derive(ActionDoc, Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -74,10 +82,10 @@ pub struct GitCloneAction {
     pub clone_inside: Option<bool>,
 
     #[action_prop(
-        description = "Overwrite if the directory already exists",
+        description = "Action to do if the directory already exists",
         required = false
     )]
-    pub overwrite: Option<bool>,
+    pub if_exists: Option<IfExistsAction>,
 }
 
 pub struct GitClone;
@@ -351,13 +359,22 @@ impl Action for GitClone {
                     }
                     
                     if destination.exists() {
-                        if git_action.overwrite.unwrap_or(false) {
-                            fs::remove_dir_all(&destination).map_err(|e| e.to_string())?;
-                        } else {
-                            return Err(format!(
-                                "Directory {} already exists",
-                                destination.display()
-                            ));
+                        let if_exists_action = git_action.if_exists.unwrap_or(IfExistsAction::Error);
+                        match if_exists_action {
+                            IfExistsAction::Overwrite => {
+                                log::warning!("Overwriting git repository {} because of the option if_exists", repository);
+                                fs::remove_dir_all(&destination).map_err(|e| e.to_string())?
+                            },
+                            IfExistsAction::Ignore => {
+                                log::warning!("Existing git repository {} ignored because of the option if_exists", repository);
+                                continue;
+                            },
+                            IfExistsAction::Error => {
+                                return Err(format!(
+                                    "Directory {} already exists",
+                                    destination.display()
+                                ));
+                            }
                         }
                     }
 

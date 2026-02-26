@@ -39,7 +39,13 @@ impl Secrets for Keyring {
         let name = unextracted_secrets.get(NAME_KEY).unwrap().as_str().unwrap();
 
         let keyring_entry = Entry::new(service, name).unwrap();
-        keyring_entry.get_password().expect(&format!("Secret entry not found at service {service} with name {name}"))
+        let entry_result = keyring_entry.get_password();
+        
+        if entry_result.is_err() {
+            log::panic!("Secret entry not found at service {service} with name {name}");
+        }
+
+        entry_result.unwrap()
     }
     
     fn clone_box(&self) -> Box<dyn Secrets + Send + Sync> {

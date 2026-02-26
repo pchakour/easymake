@@ -75,6 +75,7 @@ impl Action for Move {
                     for file in &mv.from {
                         in_files.push(file.clone());
                     }
+                    in_files.push(InFile::Simple(mv.to.clone()));
                 }
                 _ => {}
             }
@@ -109,8 +110,11 @@ impl Action for Move {
         _maybe_replacements: Option<&'a HashMap<String, String>>,
     ) -> Pin<Box<dyn Future<Output = Result<(), Box<dyn std::error::Error>>> + Send + 'a>> {
         Box::pin(async move {
-            let src = in_files.clone();
+            let mut src = in_files.clone();
             let destination = out_files[0].clone();
+
+            // Exclude destination from src
+            src.retain(|s| *s != destination);
 
             log::debug!("Moving from {:?} to {}", src, destination);
 
@@ -139,8 +143,7 @@ impl Action for Move {
                 };
 
                 // We use copy because move is not working correctly
-                let copy_result =
-                    copy_items_with_progress(&src, &destination, &options, |process_info| {
+                copy_items_with_progress(&src, &destination, &options, |process_info| {
                         let mut percent = 0;
 
                         if process_info.total_bytes > 0 {
@@ -157,11 +160,7 @@ impl Action for Move {
                         );
 
                         TransitProcessResult::ContinueOrAbort
-                    });
-
-                if copy_result.is_err() {
-                    return Err(format!("{}", copy_result.err().unwrap()).into());
-                }
+                    }).map_err(|e| e.to_string())?;
 
                 log::action_info!(step_id, ID, "Removing source files");
 
@@ -174,7 +173,8 @@ impl Action for Move {
 
                 return fs_extra::remove_items(&src).map_err(|error| format!("{}", error).into());
             } else {
-                fs::rename(&src[0], &destination).unwrap();
+                log::action_info!(step_id, ID, "Moving {} to {}", src[0], destination);
+                fs::rename(&src[0], &destination)?;
             }
 
 

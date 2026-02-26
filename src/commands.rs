@@ -11,12 +11,13 @@ pub mod keyring;
 pub async fn run_command(matches: &ArgMatches) {
     let log_level = matches.get_one::<String>("log_level").unwrap();
     set_log_level(LogLevel::from_str(log_level));
-
+    
     if let Some(matches) = matches.subcommand_matches("build") {
         let target = matches.get_one::<String>("target").expect("required");
         build::run(target, true).await;
-    } else if let Some(_matches) = matches.subcommand_matches("clean") {
-        clean::run().await;
+    } else if let Some(matches) = matches.subcommand_matches("clean") {
+        let dry_run = matches.get_flag("dry_run");
+        clean::run(&dry_run).await;
     } else if let Some(matches) = matches.subcommand_matches("graph") {
         let target = matches.get_one::<String>("target").expect("required");
         graph::run(target);

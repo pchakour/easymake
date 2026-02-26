@@ -152,6 +152,7 @@ impl Action for Extract {
             match action {
                 PluginAction::Extract { extract } => {
                     in_files.push(extract.from.clone());
+                    in_files.push(InFile::Simple(extract.to.clone()));
                 }
                 _ => {}
             }

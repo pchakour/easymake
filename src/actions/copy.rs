@@ -46,7 +46,7 @@ pub struct CopyAction {
     #[action_prop(
         description = "Overwrite if dest files already exists",
         required = false,
-        default = true,
+        default = false,
     )]
     pub overwrite: Option<bool>,
 
@@ -72,6 +72,7 @@ impl Action for Copy {
                     for from in &copy.from {
                         in_files.push(InFile::Simple(from.to_string()));
                     }
+                    in_files.push(InFile::Simple(copy.to.to_string()));
                 }
                 _ => {}
             }
@@ -125,8 +126,9 @@ impl Action for Copy {
             };
             let mut handles = Vec::new();
 
-            let from: &Vec<String> = in_files;
+            let mut from: Vec<String> = in_files.clone();
             let destination = &out_files[0];
+            from.retain(|path| path != destination);
 
             for (_, from) in from.iter().enumerate() {
                 let action_description = format!("Copying file {} to {}", from, destination);
@@ -134,7 +136,7 @@ impl Action for Copy {
 
                 let src_owned = from.clone();
                 let dest_owned = destination.clone();
-                let overwrite = copy_action.overwrite.unwrap_or(true);
+                let overwrite = copy_action.overwrite.unwrap_or(false);
                 let skip_exist = copy_action.skip_exist.unwrap_or(false);
 
                 handles.push(tokio::spawn(async move {
@@ -154,7 +156,7 @@ impl Action for Copy {
                     
                     fs::create_dir_all(&dest_dir).unwrap();
 
-                    if dest_dir.is_dir() {
+                    if dest_path.is_dir() {
                         let options = CopyOptions {
                             overwrite,
                             skip_exist,
@@ -170,9 +172,21 @@ impl Action for Copy {
                             ));
                         }
                     } else {
-                        if dest_path.exists() && !skip_exist && !overwrite {
-                            return Err(format!("Dest path {} already exists", dest_path.to_str().unwrap()));
+                        if dest_path.exists() {
+                            if !skip_exist && !overwrite {
+                                return Err(format!("Dest path {} already exists", dest_path.to_str().unwrap()));
+                            }
+
+                            if skip_exist {
+                                log::warning!("Dest path {} already exists, copy ignore because of option skip_exist", dest_path.to_str().unwrap());
+                                return Ok(());
+                            }
+
+                            if overwrite && !dest_path.is_dir() {
+                                fs_extra::remove_items(&[&dest_path]).map_err(|e| e.to_string())?;
+                            }
                         }
+
 
                         if let Err(e) = fs::copy(&src_path, &dest_path) {
                             return Err(format!(

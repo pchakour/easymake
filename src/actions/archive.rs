@@ -347,6 +347,7 @@ impl Action for Archive {
                     for path in &archive.from {
                         in_files.push(path.clone());
                     }
+                    in_files.push(InFile::Simple(archive.to.clone()));
                 }
                 _ => {}
             }
@@ -395,12 +396,13 @@ impl Action for Archive {
 
             let target_id_clone = target_id.to_string();
             let step_id_clone = step_id.to_string();
-            let in_files_clone = in_files.clone();
+            let mut paths_to_archive = in_files.clone();
+            paths_to_archive.retain(|in_file| in_file != to);
             let to_clone = to.clone();
             let exclude_paths_clone = exclude_paths.clone();
 
             let spawn_result = tokio::task::spawn_blocking(move || {
-                archive(&target_id_clone, &step_id_clone, &in_files_clone, &to_clone, &exclude_paths_clone)
+                archive(&target_id_clone, &step_id_clone, &paths_to_archive, &to_clone, &exclude_paths_clone)
             }).await.unwrap();
 
             if spawn_result.is_err() {

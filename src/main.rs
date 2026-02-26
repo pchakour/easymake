@@ -8,18 +8,8 @@ mod graph;
 mod secrets;
 mod utils;
 
-use clap::{arg, Command, Parser};
+use clap::{arg, Command};
 use std::{env, fs, path::{Path, PathBuf}, sync::{Arc, OnceLock, RwLock}};
-
-#[derive(Parser, Debug)]
-#[command(version, about, long_about = None)]
-struct Args {
-    /// Name of the person to greet
-    #[arg(long)]
-    cwd: Option<String>,
-    command: String,
-    target: Option<String>,
-}
 
 use dashmap::{DashMap, DashSet};
 use once_cell::sync::Lazy;
@@ -63,7 +53,11 @@ async fn main() {
                 .value_parser(["console", "info", "debug", "trace"])
                 .default_value("console"),
         )
-        .subcommand(Command::new("clean").about("Clean cache"))
+        .subcommand(
+            Command::new("clean")
+            .about("Clean cache")
+            .arg(arg!(--dry_run "List files to delete without deleting it").required(false))
+            )
         .subcommand(
             Command::new("graph")
                 .about("Generate graphviz graph")
