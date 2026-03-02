@@ -229,7 +229,11 @@ fn clone_and_checkout(
         }
     }
 
-    let branch = maybe_branch.unwrap_or_else(|| "refs/heads/main".to_string());
+    if maybe_branch.is_none() {
+        return Err(format!("The commit {default_branch} doesn't exist on the remote repository {repository}").into());
+    }
+
+    let branch = maybe_branch.unwrap();
     let refs_branch = format!("{}:{}", branch, branch);
 
     // Fetch

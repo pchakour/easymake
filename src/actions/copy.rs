@@ -5,7 +5,7 @@ use std::{collections::HashMap, fs, future::Future, path::PathBuf, pin::Pin};
 
 use crate::{
     console::log,
-    emake::{InFile, PluginAction},
+    emake::{self, InFile, PluginAction},
 };
 
 use super::Action;
@@ -46,14 +46,14 @@ pub struct CopyAction {
     #[action_prop(
         description = "Overwrite if dest files already exists",
         required = false,
-        default = false,
+        default = false
     )]
     pub overwrite: Option<bool>,
 
     #[action_prop(
         description = "Ignore dest file if already exists",
         required = false,
-        default = false,
+        default = false
     )]
     pub skip_exist: Option<bool>,
 }
@@ -88,11 +88,16 @@ impl Action for Copy {
             match action {
                 PluginAction::Copy { copy } => {
                     let dest_path = PathBuf::from(&copy.to);
-                    if dest_path.is_dir() || dest_path.ends_with("/") {
+                    if dest_path.is_dir() || copy.to.ends_with("/") {
                         for src in &copy.from {
                             let src_path = PathBuf::from(src);
                             let dirname = src_path.file_name().unwrap();
-                            out_files.push(PathBuf::from(copy.to.to_string()).join(&dirname).to_string_lossy().to_string());
+                            out_files.push(
+                                PathBuf::from(copy.to.to_string())
+                                    .join(&dirname)
+                                    .to_string_lossy()
+                                    .to_string(),
+                            );
                         }
                     } else {
                         out_files.push(copy.to.to_string());
@@ -107,30 +112,48 @@ impl Action for Copy {
         &'a self,
         _target_id: &'a str,
         step_id: &'a str,
-        _emakefile_cwd: &'a str,
+        emakefile_cwd: &'a str,
         _silent: bool,
         action: &'a PluginAction,
         in_files: &'a Vec<String>,
         out_files: &'a Vec<String>,
         _working_dir: &'a String,
-        _maybe_replacements: Option<&'a HashMap<String, String>>,
+        maybe_replacements: Option<&'a HashMap<String, String>>,
     ) -> Pin<Box<dyn Future<Output = Result<(), Box<dyn std::error::Error>>> + Send + 'a>> {
         Box::pin(async move {
             let copy_action = match action {
-                PluginAction::Copy { copy } => {
-                    copy
-                },
+                PluginAction::Copy { copy } => copy,
                 _ => {
                     log::panic!("Error when using copy");
                 }
             };
             let mut handles = Vec::new();
 
+            let compiled_to =
+                emake::compiler::compile(&copy_action.to, emakefile_cwd, maybe_replacements, None);
             let mut from: Vec<String> = in_files.clone();
-            let destination = &out_files[0];
-            from.retain(|path| path != destination);
+            from.retain(|path| compiled_to != *path);
 
-            for (_, from) in from.iter().enumerate() {
+            log::info!(
+                "Destination size {} / From size {}",
+                out_files.len(),
+                from.len()
+            );
+            log::info!("In files {:?}", in_files);
+            log::info!("From {:?}", from);
+            log::info!("Out files {:?}", out_files);
+
+            if out_files.len() > 1 && from.len() != out_files.len() {
+                return Err(format!("Somethings wrong from files length is different of the out files length: FROM = {:?} OUT = {:?}", from, out_files).into());
+            }
+
+            for (index, from) in from.iter().enumerate() {
+                let mut destination = &out_files[0];
+
+                if out_files.len() > 1 {
+                    destination = &out_files[index];
+                }
+
                 let action_description = format!("Copying file {} to {}", from, destination);
                 log::action_info!(step_id, ID, "{}", action_description);
 
@@ -140,60 +163,33 @@ impl Action for Copy {
                 let skip_exist = copy_action.skip_exist.unwrap_or(false);
 
                 handles.push(tokio::spawn(async move {
-                    let src_path = PathBuf::from(&src_owned);
                     let dest_path = PathBuf::from(&dest_owned);
 
-                    
                     // Decide if destination is a directory
                     let is_dest_dir = dest_path.is_dir() || dest_owned.ends_with('/');
-                    
+
                     // Ensure directory exists
                     let dest_dir = if is_dest_dir {
                         dest_path.clone()
                     } else {
                         dest_path.parent().unwrap().to_path_buf()
                     };
-                    
+
                     fs::create_dir_all(&dest_dir).unwrap();
 
-                    if dest_path.is_dir() {
-                        let options = CopyOptions {
-                            overwrite,
-                            skip_exist,
-                            ..Default::default()
-                        };
+                    let options = CopyOptions {
+                        overwrite,
+                        skip_exist,
+                        ..Default::default()
+                    };
 
-                        let result = fs_extra::copy_items(&[&src_owned], &dest_dir, &options);
+                    let result = fs_extra::copy_items(&[&src_owned], &dest_dir, &options);
 
-                        if let Err(e) = result {
-                            return Err(format!(
-                                "Can't copy using fs_extra::copy_items function {} → {}: {:?}",
-                                src_owned, dest_owned, e
-                            ));
-                        }
-                    } else {
-                        if dest_path.exists() {
-                            if !skip_exist && !overwrite {
-                                return Err(format!("Dest path {} already exists", dest_path.to_str().unwrap()));
-                            }
-
-                            if skip_exist {
-                                log::warning!("Dest path {} already exists, copy ignore because of option skip_exist", dest_path.to_str().unwrap());
-                                return Ok(());
-                            }
-
-                            if overwrite && !dest_path.is_dir() {
-                                fs_extra::remove_items(&[&dest_path]).map_err(|e| e.to_string())?;
-                            }
-                        }
-
-
-                        if let Err(e) = fs::copy(&src_path, &dest_path) {
-                            return Err(format!(
-                                "Can't copy using fs::copy function {} → {}: {:?}",
-                                src_owned, dest_owned, e
-                            ));
-                        }
+                    if let Err(e) = result {
+                        return Err(format!(
+                            "Can't copy using fs_extra::copy_items function {} → {}: {:?}",
+                            src_owned, dest_owned, e
+                        ));
                     }
 
                     Ok(())
