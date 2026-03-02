@@ -20,7 +20,8 @@ pub async fn run_command(matches: &ArgMatches) {
         clean::run(&dry_run).await;
     } else if let Some(matches) = matches.subcommand_matches("graph") {
         let target = matches.get_one::<String>("target").expect("required");
-        graph::run(target);
+        let path_png = matches.get_one::<String>("path").expect("required");
+        graph::run(target, path_png);
     } else if let Some(_matches) = matches.subcommand_matches("doc") {
         doc::generate();
     } else if let Some(matches) = matches.subcommand_matches("keyring") {

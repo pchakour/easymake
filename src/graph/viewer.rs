@@ -75,5 +75,6 @@ pub fn as_graphviz(target_absolute_path: &str) -> String {
 
     let list_edges: Vec<String> = edges.into_iter().collect();
     let body = list_edges.join("\n");
+    
     format!("digraph G {{\n{}\n}}", body)
 }

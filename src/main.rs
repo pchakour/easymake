@@ -61,7 +61,9 @@ async fn main() {
         .subcommand(
             Command::new("graph")
                 .about("Generate graphviz graph")
-                .arg(arg!([target] "Target to analyze").required(true)),
+                .arg(arg!([target] "Target to analyze").required(true))
+                .arg(arg!([path] "Path where to generate the graph").required(true))
+                ,
         )
         .subcommand(
             Command::new("build")
