@@ -72,7 +72,6 @@ impl Action for Copy {
                     for from in &copy.from {
                         in_files.push(InFile::Simple(from.to_string()));
                     }
-                    in_files.push(InFile::Simple(copy.to.to_string()));
                 }
                 _ => {}
             }

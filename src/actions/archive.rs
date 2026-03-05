@@ -347,7 +347,6 @@ impl Action for Archive {
                     for path in &archive.from {
                         in_files.push(path.clone());
                     }
-                    in_files.push(InFile::Simple(archive.to.clone()));
                 }
                 _ => {}
             }

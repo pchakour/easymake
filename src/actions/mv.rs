@@ -75,7 +75,6 @@ impl Action for Move {
                     for file in &mv.from {
                         in_files.push(file.clone());
                     }
-                    in_files.push(InFile::Simple(mv.to.clone()));
                 }
                 _ => {}
             }
