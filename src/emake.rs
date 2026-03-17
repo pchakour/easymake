@@ -14,7 +14,8 @@ pub type VariableEntry = Value;
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Target {
     pub deps: Option<Vec<String>>,
-    pub parallel: Option<bool>,
+    pub parallel_steps: Option<bool>,
+    pub parallel_deps: Option<bool>,
     pub steps: Option<Vec<Step>>,
 }
 

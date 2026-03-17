@@ -167,14 +167,19 @@ impl Action for Shell {
                 let step_id_clone = String::from(step_id);
 
                 let spawn_result: Result<(), String>= tokio::task::spawn_blocking(move || {
-                    let mut child = Command::new(shell)
+                    let child_result = Command::new(shell)
                         .current_dir(current_working_directory_for_command_clone)
                         .arg(arg_clone)
                         .arg(&command_clone)
                         .stdout(Stdio::piped())
                         .stderr(Stdio::piped())
-                        .spawn()
-                        .expect("Failed to execute command");
+                        .spawn();
+                    
+                    if child_result.is_err() {
+                        return Err(child_result.err().unwrap().to_string());
+                    }
+
+                    let mut child = child_result.unwrap();
 
                     let stdout = child.stdout.take().unwrap();
                     let stderr = child.stderr.take().unwrap();

@@ -210,6 +210,7 @@ async fn get_real_in_files<'a>(
         (String::from("EMAKE_WORKING_DIR"), working_dir.to_owned()),
         (String::from("EMAKE_CWD_DIR"), cwd.to_owned()),
         (String::from("EMAKE_OUT_DIR"), out_dir.to_owned()),
+        (String::from("EMAKE_FILE_DIR"), PathBuf::from(&emakefile_current_path).parent().unwrap().to_string_lossy().to_string()),
     ]);
 
     let mut download_futures = Vec::new();
@@ -336,6 +337,7 @@ async fn get_real_out_files<'a>(
         (String::from("EMAKE_WORKING_DIR"), working_dir.to_owned()),
         (String::from("EMAKE_CWD_DIR"), get_cwd().to_string_lossy().to_string()),
         (String::from("EMAKE_OUT_DIR"), out_dir.to_owned()),
+        (String::from("EMAKE_FILE_DIR"), PathBuf::from(&emakefile_current_path).parent().unwrap().to_string_lossy().to_string()),
     ]);
 
     plugin.insert_out_files(&step.action, &mut out_files).await;
@@ -413,6 +415,7 @@ async fn run_step<'a>(
         (String::from("EMAKE_WORKING_DIR"), working_dir.to_owned()),
         (String::from("EMAKE_CWD_DIR"), cwd.to_string_lossy().to_string()),
         (String::from("EMAKE_OUT_DIR"), out_dir.to_owned()),
+        (String::from("EMAKE_FILE_DIR"), PathBuf::from(&emakefile_current_path).parent().unwrap().to_string_lossy().to_string()),
     ]);
     let real_in_files =
         get_real_in_files(target_id, step_id, step, emakefile_current_path).await;
@@ -595,21 +598,27 @@ pub fn run_target<'a>(
 
         if let Some(deps) = &target.deps {
             let mut dependencies_tasks: Vec<JoinHandle<()>> = Vec::new();
+            let parallel_deps = target.parallel_deps.unwrap_or(true);
 
             for dependency in deps {
                 let dependency_target_path =
                     get_absolute_target_path(dependency, &emakefile.path.clone().unwrap());
 
-                let dependency_target_path_clone = dependency_target_path.clone();
-                let handle = tokio::spawn(async move {
-                    run_target(dependency_target_path_clone).await;
-                });
-
-                dependencies_tasks.push(handle);
+                    if parallel_deps {
+                    let dependency_target_path_clone = dependency_target_path.clone();
+                    let handle = tokio::spawn(async move {
+                        run_target(dependency_target_path_clone).await;
+                    });
+                    dependencies_tasks.push(handle);
+                } else {
+                    run_target(dependency_target_path.clone()).await;
+                }
             }
-
-            // Await all dependency tasks
-            futures::future::join_all(dependencies_tasks).await;
+            
+            if parallel_deps {
+                // Await all dependency tasks
+                futures::future::join_all(dependencies_tasks).await;
+            }
         }
 
         if let Some(steps) = &target.steps {
@@ -625,7 +634,7 @@ pub fn run_target<'a>(
                 let emakefile_path_str = emakefile_path.to_string_lossy().to_string();
                 let emakefile_path_str_clone = emakefile_path_str.clone();
 
-                if target.parallel.unwrap_or(false) {
+                if target.parallel_steps.unwrap_or(false) {
                     let fut = async move {
                         let m = get_mutex_for_id(&step_id_clone).await;
                         let _guard = m.lock().await;

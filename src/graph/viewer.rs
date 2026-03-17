@@ -26,10 +26,21 @@ where
         visitor(parent_target, target_absolute_path, target);
 
         if let Some(deps) = &target.deps {
-            for dep in deps {
-                let dep_target_absolute_path =
-                    get_absolute_target_path(dep, &emakefile_path.to_string_lossy().to_string());
-                target_visitor(target_absolute_path, &dep_target_absolute_path, visitor);
+            if target.parallel_deps.unwrap_or(true) {
+                for dep in deps {
+                    let dep_target_absolute_path =
+                        get_absolute_target_path(dep, &emakefile_path.to_string_lossy().to_string());
+                    target_visitor(target_absolute_path, &dep_target_absolute_path, visitor);
+                }
+            } else {
+                let mut last_deps_path = target_absolute_path.to_string();
+
+                for dep in deps {
+                    let dep_target_absolute_path =
+                        get_absolute_target_path(dep, &emakefile_path.to_string_lossy().to_string());
+                    target_visitor(&last_deps_path, &dep_target_absolute_path, visitor);
+                    last_deps_path = dep_target_absolute_path;
+                }
             }
         }
     }
@@ -60,7 +71,7 @@ pub fn as_graphviz(target_absolute_path: &str) -> String {
             let step_node = format!("\"{step_id}\"[shape=\"parallelogram\", label=\"{step_name}\"]");
             edges.insert(step_node);
 
-            if target.parallel.unwrap_or(false) {
+            if target.parallel_steps.unwrap_or(false) {
                 edges.insert(format!("    \"{}\" -> \"{}\";", current, step_id));
             } else {
                 edges.insert(format!("    \"{}\" -> \"{}\";", previous, step_id));

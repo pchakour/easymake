@@ -25,8 +25,13 @@ pub enum Target {
 
 fn read_file_content(path: &str) -> String {
     // log::info!("Loading file {:?}", path);
-    let content = std::fs::read_to_string(path).unwrap();
-    return content;
+    let content_result = std::fs::read_to_string(path);
+
+    if content_result.is_err() {
+        log::panic!("Error when trying to read the file {}: {}", path, content_result.err().unwrap().to_string());
+    }
+
+    return content_result.ok().unwrap();
 }
 
 fn target_type_str_to_enum(target_type: &str) -> Result<TargetType, String> {
