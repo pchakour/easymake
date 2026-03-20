@@ -805,7 +805,7 @@ pub fn compile(
     let result = re.replace_all(content, |caps: &regex::Captures| {
         let element = String::from(caps[1].trim());
         let tokens = tokenizer(&element);
-        log::debug!("TOKENS {:?}", tokens);
+        log::trace!("TOKENS {:?}", tokens);
         template_executor(&tokens, emakefile_current_path, maybe_replacements, cwd)
     });
 

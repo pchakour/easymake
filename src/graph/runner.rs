@@ -256,6 +256,7 @@ async fn get_real_in_files<'a>(
                 let output_string = output.to_str().unwrap().to_string();
                 downloadable_files_indices.insert(file.clone(), output_string.clone());
                 if cache::has_file_changed(&output_string, step_id, &false) {
+                    log::trace!("Downloadable file {} changed", output_string);
                     downloaded_files.push(file.clone());
                     let file_clone = file.clone(); // required if file is &String
                     let target_id_clone = String::from(target_id);
@@ -432,15 +433,17 @@ async fn run_step<'a>(
     for file in &real_in_files {
         let file_changed = cache::has_file_changed(file, step_id, &true);
         if file_changed {
+            log::trace!("Need to run the step {} because the in file {} has changed", step_id, file);
             need_to_run_action = true;
             break;
         }
     }
-
+    
     if !need_to_run_action {
         for file in &real_out_files {
             let file_changed = cache::has_file_changed(file, step_id, &false);
             if file_changed {
+                log::trace!("Need to run the step {} because the out file {} has changed", step_id, file);
                 need_to_run_action = true;
                 break;
             }
@@ -604,7 +607,7 @@ pub fn run_target<'a>(
                 let dependency_target_path =
                     get_absolute_target_path(dependency, &emakefile.path.clone().unwrap());
 
-                    if parallel_deps {
+                if parallel_deps {
                     let dependency_target_path_clone = dependency_target_path.clone();
                     let handle = tokio::spawn(async move {
                         run_target(dependency_target_path_clone).await;

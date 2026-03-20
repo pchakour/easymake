@@ -33,14 +33,22 @@ pub fn write_cache(ignore_not_exists: &bool) {
         .map(|entry| entry.key().clone())
         .collect::<Vec<_>>();
 
-    write_file_cache(&cache_in_file_to_update, &true, &Vec::from([String::from("in_file")]));
+    write_file_cache(
+        &cache_in_file_to_update,
+        &true,
+        &Vec::from([String::from("in_file")]),
+    );
 
     let cache_out_file_to_update: Vec<(String, String)> = CACHE_OUT_FILE_TO_UPDATE
         .iter()
         .map(|entry| entry.key().clone())
         .collect::<Vec<_>>();
 
-    write_file_cache(&cache_out_file_to_update, &ignore_not_exists, &Vec::from([String::from("out_file")]));
+    write_file_cache(
+        &cache_out_file_to_update,
+        &ignore_not_exists,
+        &Vec::from([String::from("out_file")]),
+    );
 }
 
 fn write_file_cache(files: &Vec<(String, String)>, ignore_not_exists: &bool, tags: &Vec<String>) {
@@ -67,20 +75,37 @@ fn write_file_cache(files: &Vec<(String, String)>, ignore_not_exists: &bool, tag
 }
 
 fn get_file_modification_time(file_absolute_path: &str) -> Option<String> {
+    fn latest_mtime(path: &Path) -> Option<SystemTime> {
+        if fs::exists(&path).unwrap_or(false) {
+            let Ok(metadata) = fs::metadata(&path) else { return None; };
+
+            let Ok(mut latest) = metadata.modified() else { return None; };
+
+            if metadata.is_dir() {
+                let Ok(read_dir) = fs::read_dir(path) else { return None; };
+                for entry in read_dir {
+                    let entry = entry.unwrap();
+                    let child_time = latest_mtime(&entry.path())?;
+                    if child_time > latest {
+                        latest = child_time;
+                    }
+                }
+            }
+
+            return Some(latest);
+
+        }
+        None
+    }
+
     match std::fs::exists(&file_absolute_path) {
-        Ok(true) => match std::fs::metadata(&file_absolute_path) {
-            Ok(metadata) => {
-                let mut current_time = format!("{:?}", metadata.modified().unwrap());
+        Ok(true) => match latest_mtime(Path::new(&file_absolute_path)) {
+            Some(time) => {
+                let mut current_time = format!("{:?}", time);
                 current_time = current_time.replace(" ", "");
                 return Some(current_time);
             }
-            Err(error) => {
-                log::panic!(
-                    "Error when getting metadata of file {}: {}",
-                    file_absolute_path,
-                    error
-                );
-            }
+            None => {}
         },
         Ok(false) => (),
         Err(error) => {
@@ -95,7 +120,12 @@ fn get_file_modification_time(file_absolute_path: &str) -> Option<String> {
     None
 }
 
-fn write_file_in_cache(file_absolute_path: &str, action_id: &str, modification_date: &str, tags: &Vec<String>) {
+fn write_file_in_cache(
+    file_absolute_path: &str,
+    action_id: &str,
+    modification_date: &str,
+    tags: &Vec<String>,
+) {
     let cache_file_path = get_file_cache(&file_absolute_path);
     let cache_file_dir = cache_file_path.parent().unwrap();
     if let Ok(cache_file_dir_exists) = std::fs::exists(&cache_file_dir) {
@@ -105,7 +135,8 @@ fn write_file_in_cache(file_absolute_path: &str, action_id: &str, modification_d
         }
 
         // println!("Write file cache {:?}", cache_file_path);
-        let glob_paths = glob::glob(&format!("{}/tag_*", cache_file_dir.to_str().unwrap())).unwrap();
+        let glob_paths =
+            glob::glob(&format!("{}/tag_*", cache_file_dir.to_str().unwrap())).unwrap();
         for path in glob_paths {
             if let Ok(p) = path {
                 fs::remove_file(p).unwrap();
@@ -219,11 +250,7 @@ pub fn has_file_changed(file: &str, action_id: &str, ignore_not_exists: &bool) -
     }
 
     let mut file_changed = !ignore_not_exists;
-    let file_absolute_path = String::from(
-        get_absolute_file_path(&filename)
-            .to_str()
-            .unwrap_or(""),
-    );
+    let file_absolute_path = String::from(get_absolute_file_path(&filename).to_str().unwrap_or(""));
 
     if let Some(modification_date) = get_file_modification_time(&file_absolute_path) {
         file_changed = true;
