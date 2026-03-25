@@ -1,6 +1,6 @@
-# Easymake
-
-## Types
+---
+title: Types
+---
 
 | Name | Description |
 | ---- | ---------- |

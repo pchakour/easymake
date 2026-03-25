@@ -1,0 +1,99 @@
+---
+title: Paths syntax
+description: Everything you need to know about paths
+sidebar:
+    order: 1
+---
+
+import { FileTree } from '@astrojs/starlight/components';
+
+
+Paths in Easymake are used to reference an entity which can be a **variable**, a **secret** or a **target** across your project structure.  
+They follow a simple convention inspired by filesystem paths.
+
+There is three kinds of paths: absolute, relative or local.
+
+---
+
+### Absolute, relative and local paths
+
+In all the following examples, you can replace [ENTITY_TYPE] by `variables`, `secrets` or `targets`, and replace
+[ENTITY_NAME] by the name you used to declare the entity.
+
+- **Absolute paths**
+  An absolute paths is the complete address of an entity.
+  Start with **`//`** and always point from the **root `Emakefile`**.
+
+  Syntax:
+  ```yaml
+  //[PATH]/[ENTITY_TYPE]:[ENTITY_NAME]
+  ```
+
+  Example:
+  ```yaml
+  //subdirectory/targets:my_super_target
+  ```
+
+- **Relative paths**  
+  Start with a single **`/`** and are resolved **relative to the current `Emakefile`**.  
+
+  Syntax:
+  ```yaml
+  /[PATH]/[ENTITY_TYPE]:[ENTITY_NAME]
+  ```
+
+  Example:  
+  ```yaml
+  /subdirectory/targets:my_super_target
+  ```
+
+- **Local paths**  
+  If you omit the leading slash, the reference stays **within the current `Emakefile`**.  
+  Syntax:  
+  ```yaml
+  [ENTITY_TYPE]:[ENTITY_NAME]
+  ```
+
+  Example:
+  ```yaml
+  targets:my_super_target
+  ```
+---
+
+### Shortcut for targets  
+
+You can omit the entity type when you refer to a target.
+By default, easymake will consider your path as a target.  
+
+**//subdirectory/my_best_target** is equivalent to **//subdirectory/targets:my-best-target**
+
+### Example project structure
+
+<FileTree>
+
+- my-project
+  - Emakefile
+  - archive
+    - Emakefile
+    - other-folder
+      - Emakefile
+
+</FileTree>
+
+- From the **archive `Emakefile`** if you want use the target `hello` from the `other-folder`, you can use one of the following paths:
+  - Relative path → `/other-folder/targets:hello`
+  - Absolute path → `//archive/other-folder/targets:hello`
+
+- From the **other-folder `Emakefile`** if you want use the target `hello`, you can use one of the following paths:
+  - Local path → `targets:hello`
+  - Absolute path → `//archive/other-folder/targets:hello`
+
+---
+
+### Summary
+
+- `//` → start from root  
+- `/` → go down into subfolders from current file  
+- no prefix → stay in the same `Emakefile`  
+- `entity_type:entity_name` → point to a **variable**, **secret**, or **target** with a specific name
+- omit `targets:` → directly reference a target

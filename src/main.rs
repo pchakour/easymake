@@ -54,6 +54,9 @@ async fn main() {
                 .default_value("console"),
         )
         .subcommand(
+            Command::new("init").about("Initialize a project")
+        )
+        .subcommand(
             Command::new("clean")
             .about("Clean cache")
             .arg(arg!(--dry_run "List files to delete without deleting it").required(false))

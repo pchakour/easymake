@@ -7,12 +7,15 @@ pub mod clean;
 pub mod graph;
 pub mod doc;
 pub mod keyring;
+pub mod init;
 
 pub async fn run_command(matches: &ArgMatches) {
     let log_level = matches.get_one::<String>("log_level").unwrap();
     set_log_level(LogLevel::from_str(log_level));
     
-    if let Some(matches) = matches.subcommand_matches("build") {
+    if let Some(_) = matches.subcommand_matches("init") {
+        init::initialize();
+    } else if let Some(matches) = matches.subcommand_matches("build") {
         let target = matches.get_one::<String>("target").expect("required");
         build::run(target, true).await;
     } else if let Some(matches) = matches.subcommand_matches("clean") {

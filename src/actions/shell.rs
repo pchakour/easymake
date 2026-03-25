@@ -156,7 +156,7 @@ impl Action for Shell {
                     ("sh", "-c")
                 };
 
-                log::info!(
+                log::debug!(
                     "Current workingdirectory to execute the command is {}",
                     current_working_directory_for_command
                 );

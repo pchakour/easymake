@@ -57,7 +57,6 @@ fn write_file_cache(files: &Vec<(String, String)>, ignore_not_exists: &bool, tag
             if file_exists {
                 if has_file_changed(file_absolute_path, action_id, ignore_not_exists) {
                     let maybe_current_time = get_file_modification_time(&file_absolute_path);
-
                     if let Some(current_time) = maybe_current_time {
                         write_file_in_cache(file_absolute_path, action_id, &current_time, tags);
                     }
@@ -85,9 +84,11 @@ fn get_file_modification_time(file_absolute_path: &str) -> Option<String> {
                 let Ok(read_dir) = fs::read_dir(path) else { return None; };
                 for entry in read_dir {
                     let entry = entry.unwrap();
-                    let child_time = latest_mtime(&entry.path())?;
-                    if child_time > latest {
-                        latest = child_time;
+                    let maybe_child_time = latest_mtime(&entry.path());
+                    if let Some(child_time) = maybe_child_time {
+                        if child_time > latest {
+                            latest = child_time;
+                        }
                     }
                 }
             }
@@ -244,7 +245,7 @@ pub async fn write_cache_action_checksum(action_id: &str, checksum: &str) {
 
 pub fn has_file_changed(file: &str, action_id: &str, ignore_not_exists: &bool) -> bool {
     let mut filename = String::from(file);
-
+    
     if is_url(file) {
         filename = urlencoding::encode(file).to_string();
     }
@@ -275,7 +276,7 @@ pub fn has_file_changed(file: &str, action_id: &str, ignore_not_exists: &bool) -
             }
         }
     }
-
+    
     file_changed
 }
 

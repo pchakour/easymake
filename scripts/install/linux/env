@@ -1,0 +1,10 @@
+#!/bin/sh
+# affix colons on either side of $PATH to simplify matching
+case ":${PATH}:" in
+    *:"$HOME/.emake/bin":*)
+        ;;
+    *)  
+        # Prepending path in case a system-installed emake needs to be overridden
+        export PATH="$HOME/.emake/bin:$PATH"
+        ;;
+esac

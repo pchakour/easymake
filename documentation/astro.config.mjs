@@ -13,17 +13,14 @@ export default defineConfig({
 					label: 'Start here',
 					items: [
 						// Each item here is one entry in the navigation menu.
-						{ label: 'Getting started', slug: 'start_here/getting_started' },
+						'start_here/getting_started',
 						// { label: 'First steps', slug: 'start_here/first_steps' },
-						// { label: 'Command line', slug: 'start_here/command_line' },
+						'start_here/command_line',
 					],
 				},
 				{
 					label: 'Guides',
-					items: [
-						// Each item here is one entry in the navigation menu.
-						// { label: 'Example Guide', slug: 'guides/example' },
-					],
+					autogenerate: { directory: 'guides' },
 				},
 				{
 					label: 'Reference',
