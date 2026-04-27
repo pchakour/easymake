@@ -414,7 +414,10 @@ impl Action for Archive {
         })
     }
 
-    fn get_checksum(&self) -> Option<String> {
+    fn get_checksum<'a>(
+        &'a self,
+        _action: &'a PluginAction,
+    ) -> Option<String> {
         None
     }
 

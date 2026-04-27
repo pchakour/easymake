@@ -44,7 +44,7 @@ pub async fn get_mutex_for_id(id: &str) -> Arc<Mutex<()>> {
 #[tokio::main(flavor = "multi_thread")]
 async fn main() {
     let matches = Command::new("emake")
-        .version("0.0.1-gamma")
+        .version("0.0.1-delta")
         .about("The tool to build everything")
         .arg(arg!(--cwd <PATH>).required(false))
         .arg(

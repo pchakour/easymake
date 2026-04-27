@@ -425,10 +425,10 @@ async fn run_step<'a>(
     if force_out_files.is_some() {
         real_out_files = force_out_files.unwrap();
     }
-    let checksum_command = plugin.get_checksum();
+    let checksum_command = plugin.get_checksum(&step.action);
 
     let mut need_to_run_action =
-        (real_in_files.len() == 0 && real_out_files.len() == 0) || checksum_command.is_some();
+        real_in_files.len() == 0 && real_out_files.len() == 0 && checksum_command.is_none();
 
     for file in &real_in_files {
         let file_changed = cache::has_file_changed(file, step_id, &true);

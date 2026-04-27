@@ -362,7 +362,7 @@ fn stringify_variable_value(value: &impl serde::Serialize) -> String {
     let json_value: serde_json::Value = serde_json::to_value(value).unwrap();
 
     match json_value {
-        serde_json::Value::String(s) => s,
+        serde_json::Value::String(s) => format!("{}", s),
         serde_json::Value::Number(n) => n.to_string(),
         serde_json::Value::Bool(b) => b.to_string(),
         serde_json::Value::Null => "null".into(),

@@ -161,12 +161,13 @@ impl Action for Shell {
                     current_working_directory_for_command
                 );
 
-                let current_working_directory_for_command_clone = current_working_directory_for_command.clone();
+                let current_working_directory_for_command_clone =
+                    current_working_directory_for_command.clone();
                 let arg_clone = String::from(arg);
                 let command_clone = command.clone();
                 let step_id_clone = String::from(step_id);
 
-                let spawn_result: Result<(), String>= tokio::task::spawn_blocking(move || {
+                let spawn_result: Result<(), String> = tokio::task::spawn_blocking(move || {
                     let child_result = Command::new(shell)
                         .current_dir(current_working_directory_for_command_clone)
                         .arg(arg_clone)
@@ -174,7 +175,7 @@ impl Action for Shell {
                         .stdout(Stdio::piped())
                         .stderr(Stdio::piped())
                         .spawn();
-                    
+
                     if child_result.is_err() {
                         return Err(child_result.err().unwrap().to_string());
                     }
@@ -239,7 +240,14 @@ impl Action for Shell {
     fn clone_box(&self) -> Box<dyn Action + Send + Sync> {
         Box::new(Self)
     }
-    fn get_checksum(&self) -> Option<String> {
+
+    fn get_checksum<'a>(
+        &'a self,
+        action: &'a PluginAction,
+    ) -> Option<String> {
+        if let PluginAction::Shell { shell } = action {
+            return shell.checksum.clone();
+        }
         None
     }
 }

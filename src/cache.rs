@@ -194,10 +194,11 @@ pub async fn get_cache_action_checksum(action_id: &str) -> Option<String> {
                 let lines: Vec<&str> = cache_content.split("\n").collect();
                 for line in lines {
                     let details: Vec<&str> = line.split(" ").collect();
-                    let line_action_id = details[0];
-                    if action_id == line_action_id {
-                        let line_checksum = details[1];
-                        return Some(String::from(line_checksum));
+                    if let Some((line_action_id, checksum_parts)) = details.split_first() {
+                        if action_id == *line_action_id {
+                            let line_checksum = checksum_parts.join(" ");
+                            return Some(String::from(line_checksum));
+                        }
                     }
                 }
             }

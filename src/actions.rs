@@ -1,13 +1,16 @@
-use std::{collections::{HashMap}, future::Future, pin::Pin};
-use crate::{emake::{InFile, PluginAction}, graph::generator::to_footprint_path};
+use crate::{
+    emake::{InFile, PluginAction},
+    graph::generator::to_footprint_path,
+};
+use std::{collections::HashMap, future::Future, pin::Pin};
 
-pub mod shell;
+pub mod archive;
 pub mod copy;
 pub mod extract;
+pub mod git_clone;
 pub mod mv;
 pub mod remove;
-pub mod archive;
-pub mod git_clone;
+pub mod shell;
 pub mod yaml;
 
 pub fn compute_action_footprint(action: &PluginAction) -> String {
@@ -28,7 +31,9 @@ pub async fn get_registered_action_footprint(id: &str) -> Option<String> {
 
 pub async fn register_action_footprint(id: &str, footprint: &str) {
     let footprint_path = to_footprint_path(id);
-    tokio::fs::create_dir_all(&footprint_path.parent().unwrap()).await.unwrap();
+    tokio::fs::create_dir_all(&footprint_path.parent().unwrap())
+        .await
+        .unwrap();
     tokio::fs::write(footprint_path, footprint).await.unwrap();
 }
 
@@ -45,9 +50,20 @@ pub trait Action: Send + Sync {
         working_dir: &'a String,
         default_replacments: Option<&'a HashMap<String, String>>,
     ) -> Pin<Box<dyn Future<Output = Result<(), Box<dyn std::error::Error>>> + Send + 'a>>;
-    fn get_checksum(&self) -> Option<String>;
-    fn insert_in_files<'a>(&'a self, action: &'a PluginAction, in_files: &'a mut Vec<InFile>) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>>;
-    fn insert_out_files<'a>(&'a self, action: &'a PluginAction, out_files: &'a mut Vec<String>) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>>;
+    fn get_checksum<'a>(
+        &'a self,
+        action: &'a PluginAction,
+    ) -> Option<String>;
+    fn insert_in_files<'a>(
+        &'a self,
+        action: &'a PluginAction,
+        in_files: &'a mut Vec<InFile>,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>>;
+    fn insert_out_files<'a>(
+        &'a self,
+        action: &'a PluginAction,
+        out_files: &'a mut Vec<String>,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>>;
     fn clone_box(&self) -> Box<dyn Action + Send + Sync>;
 }
 
@@ -69,14 +85,14 @@ impl ActionsStore {
 
     pub fn get(&self, action: &PluginAction) -> Option<&Box<dyn Action + Send + Sync>> {
         match action {
-            PluginAction::Shell{ shell: _ } => self.actions.get(shell::ID),
+            PluginAction::Shell { shell: _ } => self.actions.get(shell::ID),
             PluginAction::Copy { copy: _ } => self.actions.get(copy::ID),
             PluginAction::Extract { extract: _ } => self.actions.get(extract::ID),
-            PluginAction::Move{ mv: _} => self.actions.get(mv::ID),
-            PluginAction::Remove{ remove: _} => self.actions.get(remove::ID),
-            PluginAction::Archive{ archive: _} => self.actions.get(archive::ID),
-            PluginAction::GitClone{ git_clone: _} => self.actions.get(git_clone::ID),
-            PluginAction::Yaml{ yaml: _} => self.actions.get(yaml::ID),
+            PluginAction::Move { mv: _ } => self.actions.get(mv::ID),
+            PluginAction::Remove { remove: _ } => self.actions.get(remove::ID),
+            PluginAction::Archive { archive: _ } => self.actions.get(archive::ID),
+            PluginAction::GitClone { git_clone: _ } => self.actions.get(git_clone::ID),
+            PluginAction::Yaml { yaml: _ } => self.actions.get(yaml::ID),
         }
     }
 }

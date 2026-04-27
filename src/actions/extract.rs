@@ -219,7 +219,10 @@ impl Action for Extract {
     fn clone_box(&self) -> Box<dyn Action + Send + Sync> {
         Box::new(Self)
     }
-    fn get_checksum(&self) -> Option<String> {
+    fn get_checksum<'a>(
+        &'a self,
+        _action: &'a PluginAction,
+    ) -> Option<String> {
         None
     }
 }
